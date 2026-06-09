@@ -87,6 +87,14 @@ export async function createSession(input: NewSessionInput): Promise<Session> {
   return data as Session;
 }
 
+export async function updateSession(
+  id: string,
+  input: NewSessionInput
+): Promise<void> {
+  const { error } = await supabase.from("sessions").update(input).eq("id", id);
+  if (error) throw error;
+}
+
 export async function deleteSession(id: string): Promise<void> {
   const { error } = await supabase.from("sessions").delete().eq("id", id);
   if (error) throw error;

@@ -7,6 +7,7 @@ import {
   deleteSession,
   fetchSessions,
   today,
+  updateSession,
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { Card, formatDate, weekday } from "@/components/ui";
@@ -310,12 +311,6 @@ function SessionList({
   emptyText: string;
   onChanged: () => Promise<void>;
 }) {
-  const remove = async (s: Session) => {
-    if (!confirm(`${formatDate(s.date)} 일정을 삭제할까요?`)) return;
-    await deleteSession(s.id);
-    await onChanged();
-  };
-
   return (
     <div>
       <h2 className="!mt-0 !text-[1rem]">{title}</h2>
@@ -325,27 +320,156 @@ function SessionList({
         ) : (
           <ul className="divide-y divide-line">
             {sessions.map((s) => (
-              <li key={s.id} className="flex items-start gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-ink">
-                    {formatDate(s.date)} ({weekday(s.date)})
-                  </div>
-                  <div className="text-xs text-muted">
-                    {[s.time, s.location, s.title].filter(Boolean).join(" · ") ||
-                      "세부 정보 없음"}
-                  </div>
-                </div>
-                <button
-                  onClick={() => remove(s)}
-                  className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
-                >
-                  ✕
-                </button>
-              </li>
+              <SessionRow key={s.id} session={s} onChanged={onChanged} />
             ))}
           </ul>
         )}
       </div>
     </div>
+  );
+}
+
+function SessionRow({
+  session,
+  onChanged,
+}: {
+  session: Session;
+  onChanged: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [date, setDate] = useState(session.date);
+  const [time, setTime] = useState(session.time);
+  const [location, setLocation] = useState(session.location);
+  const [title, setTitle] = useState(session.title);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const startEdit = () => {
+    setDate(session.date);
+    setTime(session.time);
+    setLocation(session.location);
+    setTitle(session.title);
+    setError("");
+    setEditing(true);
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!date) {
+      setError("날짜를 선택하세요.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await updateSession(session.id, { date, time, location, title });
+      setEditing(false);
+      await onChanged();
+    } catch (err) {
+      console.error(err);
+      setError("저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!confirm(`${formatDate(session.date)} 일정을 삭제할까요?`)) return;
+    await deleteSession(session.id);
+    await onChanged();
+  };
+
+  if (editing) {
+    return (
+      <li className="px-4 py-3">
+        <form onSubmit={save} className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="rfield"
+            />
+            <input
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="rfield"
+              placeholder="10:00–12:00"
+            />
+            <input
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="rfield"
+              placeholder="장소"
+            />
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="rfield"
+              placeholder="제목"
+            />
+          </div>
+          {error && <p className="text-xs text-[#b4543f]">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            >
+              {saving ? "저장 중…" : "저장"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:bg-surface"
+            >
+              취소
+            </button>
+          </div>
+        </form>
+
+        <style jsx>{`
+          :global(.rfield) {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 8px;
+            padding: 6px 9px;
+            font-size: 13px;
+            outline: none;
+          }
+          :global(.rfield:focus) {
+            border-color: var(--accent);
+          }
+        `}</style>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-start gap-2 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-ink">
+          {formatDate(session.date)} ({weekday(session.date)})
+        </div>
+        <div className="text-xs text-muted">
+          {[session.time, session.location, session.title]
+            .filter(Boolean)
+            .join(" · ") || "세부 정보 없음"}
+        </div>
+      </div>
+      <button
+        onClick={startEdit}
+        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+      >
+        수정
+      </button>
+      <button
+        onClick={remove}
+        className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
+      >
+        ✕
+      </button>
+    </li>
   );
 }

@@ -18,8 +18,9 @@ import {
   fetchHighlights,
 } from "@/lib/db";
 
-const WORKER_SRC =
-  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+// react-pdf-highlighter가 쓰는 pdfjs(4.x)와 버전이 일치하는 워커를
+// 동일 출처(public/)에서 서빙한다. (scripts/copy-pdf-worker.mjs 로 복사)
+const WORKER_SRC = "/pdf.worker.min.mjs";
 
 const resetHash = () => {
   if (typeof window !== "undefined") window.location.hash = "";
@@ -49,7 +50,9 @@ export default function PdfHighlighterView({
   const [loadError, setLoadError] = useState<string>("");
   const scrollToRef = useRef<((h: IHighlight) => void) | null>(null);
 
-  const proxied = `/api/pdf?url=${encodeURIComponent(pdfUrl)}`;
+  // 워커 스레드에서도 동일 출처로 정확히 fetch 되도록 절대 URL 사용
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const proxied = `${origin}/api/pdf?url=${encodeURIComponent(pdfUrl)}`;
 
   const authorName = (memberId: string | null) =>
     members.find((m) => m.id === memberId)?.name ?? "익명";

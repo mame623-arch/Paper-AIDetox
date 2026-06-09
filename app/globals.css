@@ -3,25 +3,40 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --border: #ebeae8;
+  --text: #37352f;
+  --muted: #9b9a97;
+  --accent: #2e7d6b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo",
+    "Pretendard", "Malgun Gothic", sans-serif;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+/* thin, unobtrusive scrollbars to match the reference's calm look */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d9d8d5 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d9d8d5;
+  border-radius: 8px;
+}
+
+.Highlight__part {
+  cursor: pointer;
 }

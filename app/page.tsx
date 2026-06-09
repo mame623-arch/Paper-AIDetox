@@ -1,101 +1,196 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import type { Member, Paper, Session, SessionAttendee } from "@/lib/types";
+import {
+  fetchLatestSession,
+  fetchMembers,
+  fetchRecentPapers,
+  fetchSessionAttendees,
+} from "@/lib/db";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import {
+  Card,
+  EmojiAvatar,
+  SectionTitle,
+  StatusBadge,
+  formatDate,
+} from "@/components/ui";
+
+export default function HomePage() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [attendees, setAttendees] = useState<SessionAttendee[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [recent, setRecent] = useState<Paper[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+    (async () => {
+      try {
+        const [s, ms, rp] = await Promise.all([
+          fetchLatestSession(),
+          fetchMembers(),
+          fetchRecentPapers(10),
+        ]);
+        setSession(s);
+        setMembers(ms);
+        setRecent(rp);
+        if (s) setAttendees(await fetchSessionAttendees(s.id));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const memberName = (id: string | null) =>
+    members.find((m) => m.id === id)?.name ?? "—";
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="mx-auto max-w-5xl px-4 py-6 md:px-8">
+      {/* 인트로 */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-ink">인공지능 없이 읽기 📚</h1>
+        <p className="mt-1 text-sm text-muted">
+          AI 없이 논문/글을 읽고, 좋은 표현과 문단 구조를 직접 파악합니다.
+        </p>
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      {loading ? (
+        <div className="text-sm text-muted">불러오는 중…</div>
+      ) : (
+        <div className="space-y-8">
+          {/* 가장 최근 스터디 */}
+          <section>
+            <SectionTitle hint={session ? formatDate(session.date) : undefined}>
+              가장 최근 스터디
+            </SectionTitle>
+            <Card>
+              {session ? (
+                <>
+                  <div className="mb-4 flex items-center gap-2">
+                    <span className="text-lg">🗓️</span>
+                    <span className="font-medium text-ink">
+                      {formatDate(session.date)}
+                    </span>
+                    {session.title && (
+                      <span className="rounded-full bg-[#f1f0ee] px-2 py-0.5 text-xs text-[#5f5e5b]">
+                        {session.title}
+                      </span>
+                    )}
+                  </div>
+
+                  {attendees.length === 0 ? (
+                    <p className="text-sm text-muted">참석 기록이 없습니다.</p>
+                  ) : (
+                    <ul className="divide-y divide-line">
+                      {attendees.map(({ member, papers }) => (
+                        <li
+                          key={member.id}
+                          className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+                        >
+                          <Link href={`/members/${member.id}`}>
+                            <EmojiAvatar emoji={member.emoji} />
+                          </Link>
+                          <div className="min-w-0 flex-1">
+                            <Link
+                              href={`/members/${member.id}`}
+                              className="font-medium text-ink hover:underline"
+                            >
+                              {member.name}
+                            </Link>
+                            {member.role && (
+                              <span className="ml-2 text-xs text-muted">
+                                {member.role}
+                              </span>
+                            )}
+                            <div className="mt-1 space-y-1">
+                              {papers.length === 0 ? (
+                                <span className="text-sm text-muted">
+                                  읽은 논문 기록 없음
+                                </span>
+                              ) : (
+                                papers.map((p) => (
+                                  <Link
+                                    key={p.id}
+                                    href={`/papers/${p.id}`}
+                                    className="block text-sm text-[#5f5e5b] hover:text-ink hover:underline"
+                                  >
+                                    📄 {p.title}
+                                  </Link>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted">아직 등록된 세션이 없습니다.</p>
+              )}
+            </Card>
+          </section>
+
+          {/* 멤버 */}
+          <section id="members" className="scroll-mt-20">
+            <SectionTitle hint={`${members.length}명`}>멤버</SectionTitle>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {members.map((m) => (
+                <Link key={m.id} href={`/members/${m.id}`}>
+                  <Card className="flex flex-col items-center gap-2 p-4 text-center transition hover:border-[#d6d5d2] hover:bg-[#faf9f8]">
+                    <EmojiAvatar emoji={m.emoji} size={48} />
+                    <div className="font-medium text-ink">{m.name}</div>
+                    {m.role && (
+                      <div className="text-xs text-muted">{m.role}</div>
+                    )}
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {/* 최근 읽은 논문 */}
+          <section id="papers" className="scroll-mt-20">
+            <SectionTitle>최근 논문</SectionTitle>
+            <Card className="p-0">
+              {recent.length === 0 ? (
+                <p className="p-5 text-sm text-muted">아직 논문이 없습니다.</p>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {recent.map((p) => (
+                    <li key={p.id}>
+                      <Link
+                        href={`/papers/${p.id}`}
+                        className="flex items-center gap-3 px-5 py-3 hover:bg-[#faf9f8]"
+                      >
+                        <span className="text-lg">📄</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-ink">
+                            {p.title}
+                          </div>
+                          <div className="truncate text-xs text-muted">
+                            {p.authors || "저자 미상"} · {memberName(p.added_by)}
+                            {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
+                          </div>
+                        </div>
+                        <StatusBadge status={p.status} />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </section>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
     </div>
   );
 }

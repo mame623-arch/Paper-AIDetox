@@ -11,12 +11,12 @@ truncate table highlights, papers, sessions, members restart identity cascade;
 insert into members (name, sort) values
   ('김민석', 1),
   ('김윤지', 2),
-  ('이윤석', 3),
-  ('이하늘', 4),
-  ('정승현', 5),
-  ('정지우', 6),
-  ('정승원', 7),
-  ('이거루', 8);
+  ('이거루', 3),
+  ('이윤석', 4),
+  ('이하늘', 5),
+  ('정승원', 6),
+  ('정승현', 7),
+  ('정지우', 8);
 
 -- 일정: 최근(지난) 스터디 + 예정 스터디 -----------------------
 insert into sessions (date, time, location, title) values

@@ -14,6 +14,9 @@ create table if not exists members (
   sort       int  default 0,
   created_at timestamptz default now()
 );
+-- 기존(구버전) members 테이블이 이미 있을 때 컬럼 보강
+alter table members add column if not exists role text default '';
+alter table members add column if not exists sort int default 0;
 create unique index if not exists members_name_key on members(name);
 
 -- 스터디 일정(캘린더) — 시간·장소 포함 --------------------------

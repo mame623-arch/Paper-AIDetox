@@ -1,19 +1,27 @@
 import { supabase } from "./supabase";
 import type {
+  AttendeeReadings,
   Highlight,
   Member,
   Paper,
   PaperStatus,
   Session,
-  SessionAttendee,
 } from "./types";
+
+// 오늘 날짜(YYYY-MM-DD, 로컬)
+export function today(): string {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+}
 
 // ---------- members ----------
 export async function fetchMembers(): Promise<Member[]> {
   const { data, error } = await supabase
     .from("members")
     .select("*")
-    .order("created_at", { ascending: true });
+    .order("sort", { ascending: true })
+    .order("name", { ascending: true });
   if (error) throw error;
   return data as Member[];
 }
@@ -29,10 +37,20 @@ export async function fetchMember(id: string): Promise<Member | null> {
 }
 
 // ---------- sessions ----------
-export async function fetchLatestSession(): Promise<Session | null> {
+export async function fetchSessions(): Promise<Session[]> {
   const { data, error } = await supabase
     .from("sessions")
     .select("*")
+    .order("date", { ascending: true });
+  if (error) throw error;
+  return data as Session[];
+}
+
+export async function fetchRecentSession(): Promise<Session | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("*")
+    .lte("date", today())
     .order("date", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -40,50 +58,70 @@ export async function fetchLatestSession(): Promise<Session | null> {
   return data as Session | null;
 }
 
-/** Build the "who came + what they read" view for a given session. */
-export async function fetchSessionAttendees(
-  sessionId: string
-): Promise<SessionAttendee[]> {
-  const [{ data: rows, error: e1 }, { data: papers, error: e2 }] =
-    await Promise.all([
-      supabase
-        .from("session_attendees")
-        .select("member:members(*)")
-        .eq("session_id", sessionId),
-      supabase.from("papers").select("*").eq("session_id", sessionId),
-    ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-
-  const papersByMember = new Map<string, Paper[]>();
-  for (const p of (papers ?? []) as Paper[]) {
-    if (!p.added_by) continue;
-    const list = papersByMember.get(p.added_by) ?? [];
-    list.push(p);
-    papersByMember.set(p.added_by, list);
-  }
-
-  return ((rows ?? []) as unknown as { member: Member }[])
-    .map((r) => r.member)
-    .filter(Boolean)
-    .map((member) => ({
-      member,
-      papers: papersByMember.get(member.id) ?? [],
-    }));
+export async function fetchUpcomingSession(): Promise<Session | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("*")
+    .gt("date", today())
+    .order("date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data as Session | null;
 }
 
-// ---------- papers ----------
-export async function fetchRecentPapers(limit = 12): Promise<Paper[]> {
+export interface NewSessionInput {
+  date: string;
+  time: string;
+  location: string;
+  title: string;
+}
+
+export async function createSession(input: NewSessionInput): Promise<Session> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .insert(input)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Session;
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  const { error } = await supabase.from("sessions").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** 세션에서 다룬 논문을 멤버별로 묶어 "누가 어떤 논문" 뷰를 만든다. */
+export async function fetchSessionReadings(
+  sessionId: string,
+  members: Member[]
+): Promise<AttendeeReadings[]> {
   const { data, error } = await supabase
     .from("papers")
     .select("*")
-    .order("read_date", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .eq("session_id", sessionId);
   if (error) throw error;
-  return data as Paper[];
+
+  const byMember = new Map<string, Paper[]>();
+  for (const p of (data ?? []) as Paper[]) {
+    if (!p.added_by) continue;
+    const list = byMember.get(p.added_by) ?? [];
+    list.push(p);
+    byMember.set(p.added_by, list);
+  }
+
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  return [...byMember.entries()]
+    .map(([memberId, papers]) => ({
+      member: memberById.get(memberId)!,
+      papers,
+    }))
+    .filter((r) => r.member)
+    .sort((a, b) => a.member.sort - b.member.sort);
 }
 
+// ---------- papers ----------
 export async function fetchPapersByMember(memberId: string): Promise<Paper[]> {
   const { data, error } = await supabase
     .from("papers")
@@ -111,6 +149,7 @@ export interface NewPaperInput {
   added_by: string;
   status: PaperStatus;
   read_date: string | null;
+  session_id: string | null;
 }
 
 export async function createPaper(input: NewPaperInput): Promise<Paper> {
@@ -172,18 +211,20 @@ export async function createHighlight(
   return data as Highlight;
 }
 
-export async function updateHighlightNote(
-  id: string,
-  note: string
-): Promise<void> {
-  const { error } = await supabase
-    .from("highlights")
-    .update({ note })
-    .eq("id", id);
-  if (error) throw error;
-}
-
 export async function deleteHighlight(id: string): Promise<void> {
   const { error } = await supabase.from("highlights").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------- paper metadata (auto-fetch) ----------
+export interface PaperMeta {
+  title: string;
+  authors: string;
+  source: string;
+}
+
+export async function fetchPaperMeta(url: string): Promise<PaperMeta> {
+  const res = await fetch(`/api/paper-meta?url=${encodeURIComponent(url)}`);
+  if (!res.ok) throw new Error("metadata fetch failed");
+  return (await res.json()) as PaperMeta;
 }

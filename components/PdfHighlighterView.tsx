@@ -101,7 +101,7 @@ export default function PdfHighlighterView({
   };
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0">
+    <div className="flex h-full min-h-0">
       {/* PDF + highlights */}
       <div className="relative min-w-0 flex-1 bg-[#525659]">
         <PdfLoader

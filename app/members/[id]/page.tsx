@@ -3,22 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import type { Member, Paper, PaperStatus } from "@/lib/types";
+import type { Member, Paper, PaperStatus, Session } from "@/lib/types";
 import {
   createPaper,
   deletePaper,
   fetchMember,
+  fetchPaperMeta,
   fetchPapersByMember,
+  fetchSessions,
+  today,
   updatePaperStatus,
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import {
-  Card,
-  EmojiAvatar,
-  SectionTitle,
-  StatusBadge,
-  formatDate,
-} from "@/components/ui";
+import { Avatar, Card, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
 
 export default function MemberPage() {
   const params = useParams<{ id: string }>();
@@ -26,6 +23,8 @@ export default function MemberPage() {
 
   const [member, setMember] = useState<Member | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const reload = async () => {
@@ -42,116 +41,143 @@ export default function MemberPage() {
       setLoading(false);
       return;
     }
-    reload()
+    Promise.all([reload(), fetchSessions().then(setSessions)])
       .catch(console.error)
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId]);
 
-  const read = useMemo(() => papers.filter((p) => p.status === "read"), [papers]);
-  const toread = useMemo(
-    () => papers.filter((p) => p.status === "toread"),
-    [papers]
-  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return papers;
+    return papers.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.authors.toLowerCase().includes(q)
+    );
+  }, [papers, query]);
+
+  const read = filtered.filter((p) => p.status === "read");
+  const toread = filtered.filter((p) => p.status === "toread");
 
   if (loading) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-6 text-sm text-muted md:px-8">
-        불러오는 중…
-      </div>
-    );
+    return <p className="mx-auto max-w-[900px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>;
   }
 
   if (!member) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-6 md:px-8">
-        <p className="text-sm text-muted">멤버를 찾을 수 없습니다.</p>
-        <Link href="/" className="text-sm text-accent hover:underline">
-          ← 홈으로
+      <div className="mx-auto max-w-[900px] px-5 py-7 md:px-10">
+        <p className="text-muted">멤버를 찾을 수 없습니다.</p>
+        <Link href="/members" className="text-accent hover:underline">
+          ← 멤버 목록
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 md:px-8">
-      <Link href="/" className="text-sm text-muted hover:text-ink">
-        ← 홈
+    <div className="mx-auto max-w-[900px] px-5 py-7 md:px-10">
+      <Link href="/members" className="text-sm text-muted hover:text-ink">
+        ← 멤버
       </Link>
 
-      {/* 프로필 */}
-      <div className="mb-6 mt-3 flex items-center gap-4">
-        <EmojiAvatar emoji={member.emoji} size={56} />
+      <div className="mb-5 mt-3 flex items-center gap-4">
+        <Avatar name={member.name} size={56} />
         <div>
-          <h1 className="text-2xl font-bold text-ink">{member.name}</h1>
+          <h1>{member.name}</h1>
           <p className="text-sm text-muted">
-            {member.role || "스터디원"} · 읽음 {read.length} · 읽을 예정{" "}
-            {toread.length}
+            읽음 {papers.filter((p) => p.status === "read").length} · 읽을 예정{" "}
+            {papers.filter((p) => p.status === "toread").length}
           </p>
         </div>
       </div>
 
-      <AddPaperForm memberId={memberId} onAdded={reload} />
+      <AddPaperForm
+        memberId={memberId}
+        sessions={sessions}
+        onAdded={reload}
+      />
 
-      <div className="mt-8 space-y-8">
-        <PaperList
-          title="읽은 논문"
-          papers={read}
-          emptyText="아직 읽은 논문이 없습니다."
-          onChanged={reload}
-        />
-        <PaperList
-          title="읽을 논문"
-          papers={toread}
-          emptyText="읽을 논문을 추가해 보세요."
-          onChanged={reload}
+      {/* 검색 */}
+      <div className="mt-6 flex max-w-sm items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5">
+        <span className="text-faint">🔍</span>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="내 논문 검색 (제목·저자)"
+          className="w-full bg-transparent text-sm outline-none placeholder:text-faint"
         />
       </div>
+
+      <SectionTitle hint={`${read.length}편`}>읽은 논문</SectionTitle>
+      <PaperList
+        memberId={memberId}
+        papers={read}
+        emptyText={query ? "검색 결과가 없습니다." : "아직 읽은 논문이 없습니다."}
+        onChanged={reload}
+      />
+
+      <SectionTitle hint={`${toread.length}편`}>읽을 논문</SectionTitle>
+      <PaperList
+        memberId={memberId}
+        papers={toread}
+        emptyText={query ? "검색 결과가 없습니다." : "읽을 논문을 추가해 보세요."}
+        onChanged={reload}
+      />
     </div>
   );
 }
 
 function AddPaperForm({
   memberId,
+  sessions,
   onAdded,
 }: {
   memberId: string;
+  sessions: Session[];
   onAdded: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [authors, setAuthors] = useState("");
-  const [pdfUrl, setPdfUrl] = useState("");
+  const [url, setUrl] = useState("");
   const [status, setStatus] = useState<PaperStatus>("toread");
-  const [readDate, setReadDate] = useState("");
+  const [sessionId, setSessionId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const reset = () => {
-    setTitle("");
-    setAuthors("");
-    setPdfUrl("");
+    setUrl("");
     setStatus("toread");
-    setReadDate("");
+    setSessionId("");
     setError("");
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) {
-      setError("제목을 입력하세요.");
+    if (!url.trim()) {
+      setError("PDF 링크를 입력하세요.");
       return;
     }
     setSaving(true);
     setError("");
     try {
+      let title = "";
+      let authors = "";
+      try {
+        const meta = await fetchPaperMeta(url.trim());
+        title = meta.title;
+        authors = meta.authors;
+      } catch {
+        title = "(제목 미상)";
+      }
+      const session = sessions.find((s) => s.id === sessionId) ?? null;
       await createPaper({
-        title: title.trim(),
-        authors: authors.trim(),
-        pdf_url: pdfUrl.trim(),
+        title,
+        authors,
+        pdf_url: url.trim(),
         added_by: memberId,
         status,
-        read_date: status === "read" ? readDate || null : null,
+        read_date: status === "read" ? session?.date ?? today() : null,
+        session_id: sessionId || null,
       });
       reset();
       setOpen(false);
@@ -168,9 +194,9 @@ function AddPaperForm({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="rounded-lg border border-dashed border-line bg-panel px-4 py-2.5 text-sm font-medium text-[#5f5e5b] hover:border-[#cfcec9] hover:bg-[#faf9f8]"
+        className="rounded-lg border border-dashed border-linestrong bg-bg px-4 py-2.5 text-sm font-medium text-muted hover:border-accent hover:text-accent"
       >
-        ＋ 논문 기록 추가
+        ＋ 논문 기록 추가 (PDF 링크만 붙여넣기)
       </button>
     );
   }
@@ -178,34 +204,22 @@ function AddPaperForm({
   return (
     <Card>
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="제목 *">
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="field"
-              placeholder="논문 제목"
-            />
-          </Field>
-          <Field label="저자 / 출처">
-            <input
-              value={authors}
-              onChange={(e) => setAuthors(e.target.value)}
-              className="field"
-              placeholder="예: Vaswani et al., 2017"
-            />
-          </Field>
-        </div>
-        <Field label="PDF 링크">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">
+            PDF 링크 * — 제목·저자는 링크에서 자동으로 채워집니다
+          </span>
           <input
-            value={pdfUrl}
-            onChange={(e) => setPdfUrl(e.target.value)}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
             className="field"
-            placeholder="https://arxiv.org/pdf/..."
+            placeholder="https://arxiv.org/pdf/1706.03762"
+            autoFocus
           />
-        </Field>
+        </label>
+
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="상태">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">상태</span>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as PaperStatus)}
@@ -214,20 +228,27 @@ function AddPaperForm({
               <option value="toread">읽을 예정</option>
               <option value="read">읽음</option>
             </select>
-          </Field>
-          {status === "read" && (
-            <Field label="읽은 날짜">
-              <input
-                type="date"
-                value={readDate}
-                onChange={(e) => setReadDate(e.target.value)}
-                className="field"
-              />
-            </Field>
-          )}
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              스터디 일정 (선택)
+            </span>
+            <select
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+              className="field"
+            >
+              <option value="">선택 안 함</option>
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {formatDate(s.date)} {s.title ? `· ${s.title}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-[#b4543f]">{error}</p>}
 
         <div className="flex gap-2">
           <button
@@ -235,7 +256,7 @@ function AddPaperForm({
             disabled={saving}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {saving ? "저장 중…" : "저장"}
+            {saving ? "가져오는 중…" : "가져와서 추가"}
           </button>
           <button
             type="button"
@@ -243,7 +264,7 @@ function AddPaperForm({
               reset();
               setOpen(false);
             }}
-            className="rounded-lg border border-line px-4 py-2 text-sm text-[#5f5e5b] hover:bg-[#faf9f8]"
+            className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:bg-surface"
           >
             취소
           </button>
@@ -268,28 +289,13 @@ function AddPaperForm({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
-      {children}
-    </label>
-  );
-}
-
 function PaperList({
-  title,
+  memberId,
   papers,
   emptyText,
   onChanged,
 }: {
-  title: string;
+  memberId: string;
   papers: Paper[];
   emptyText: string;
   onChanged: () => Promise<void>;
@@ -299,7 +305,7 @@ function PaperList({
     await updatePaperStatus(
       p.id,
       next,
-      next === "read" ? p.read_date ?? new Date().toISOString().slice(0, 10) : null
+      next === "read" ? p.read_date ?? today() : null
     );
     await onChanged();
   };
@@ -312,49 +318,40 @@ function PaperList({
   };
 
   return (
-    <section>
-      <SectionTitle hint={`${papers.length}편`}>{title}</SectionTitle>
-      <Card className="p-0">
-        {papers.length === 0 ? (
-          <p className="p-5 text-sm text-muted">{emptyText}</p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {papers.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center gap-3 px-5 py-3 hover:bg-[#faf9f8]"
+    <div className="overflow-hidden rounded-xl border border-line">
+      {papers.length === 0 ? (
+        <p className="p-5 text-sm text-muted">{emptyText}</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {papers.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-surface">
+              <Link href={`/members/${memberId}/papers/${p.id}`} className="min-w-0 flex-1">
+                <div className="truncate font-medium text-ink">{p.title}</div>
+                <div className="truncate text-xs text-muted">
+                  {p.authors || "저자 미상"}
+                  {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
+                  {p.pdf_url ? " · PDF" : " · 링크 없음"}
+                </div>
+              </Link>
+              <StatusBadge status={p.status} />
+              <button
+                onClick={() => toggle(p)}
+                title="상태 전환"
+                className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
               >
-                <Link
-                  href={`/papers/${p.id}`}
-                  className="min-w-0 flex-1"
-                >
-                  <div className="truncate font-medium text-ink">{p.title}</div>
-                  <div className="truncate text-xs text-muted">
-                    {p.authors || "저자 미상"}
-                    {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
-                    {p.pdf_url ? " · PDF" : " · 링크 없음"}
-                  </div>
-                </Link>
-                <StatusBadge status={p.status} />
-                <button
-                  onClick={() => toggle(p)}
-                  title="상태 전환"
-                  className="rounded-md border border-line px-2 py-1 text-xs text-[#5f5e5b] hover:bg-[#f0efed]"
-                >
-                  {p.status === "read" ? "↩︎ 읽을 예정으로" : "✓ 읽음으로"}
-                </button>
-                <button
-                  onClick={() => remove(p)}
-                  title="삭제"
-                  className="rounded-md px-2 py-1 text-xs text-muted hover:text-red-600"
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </section>
+                {p.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
+              </button>
+              <button
+                onClick={() => remove(p)}
+                title="삭제"
+                className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Member, Paper } from "@/lib/types";
+import { avatarColors, avatarLabel } from "@/lib/avatar";
 
 export function Card({
   children,
@@ -10,9 +10,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-xl border border-line bg-panel p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] ${className}`}
-    >
+    <div className={`rounded-xl border border-line bg-bg p-5 ${className}`}>
       {children}
     </div>
   );
@@ -23,29 +21,30 @@ export function SectionTitle({
   hint,
 }: {
   children: ReactNode;
-  hint?: string;
+  hint?: ReactNode;
 }) {
   return (
-    <div className="mb-3 flex items-baseline justify-between">
-      <h2 className="text-[15px] font-semibold text-ink">{children}</h2>
-      {hint ? <span className="text-xs text-muted">{hint}</span> : null}
+    <div className="mb-2 mt-7 flex items-baseline justify-between">
+      <h2>{children}</h2>
+      {hint ? <span className="text-[0.82rem] text-muted">{hint}</span> : null}
     </div>
   );
 }
 
-export function EmojiAvatar({
-  emoji,
-  size = 36,
-}: {
-  emoji: string;
-  size?: number;
-}) {
+export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
+  const { bg, fg } = avatarColors(name);
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full bg-[#f1f0ee]"
-      style={{ width: size, height: size, fontSize: size * 0.5 }}
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-bold"
+      style={{
+        width: size,
+        height: size,
+        background: bg,
+        color: fg,
+        fontSize: size * 0.4,
+      }}
     >
-      {emoji || "🙂"}
+      {avatarLabel(name)}
     </span>
   );
 }
@@ -54,31 +53,40 @@ export function StatusBadge({ status }: { status: Paper["status"] }) {
   const read = status === "read";
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
+      style={
         read
-          ? "bg-[#e7f3ee] text-[#2e7d6b]"
-          : "bg-[#fdf2e3] text-[#b8742a]"
-      }`}
+          ? { background: "#e7f3ec", color: "var(--ok)" }
+          : { background: "#fbf6ec", color: "var(--warn)" }
+      }
     >
-      {read ? "✅ 읽음" : "🕓 읽을 예정"}
+      {read ? "읽음" : "읽을 예정"}
     </span>
   );
 }
 
-export function MemberChip({ member }: { member: Member }) {
+export function MemberAvatarName({
+  member,
+  size = 36,
+}: {
+  member: Member;
+  size?: number;
+}) {
   return (
-    <Link
-      href={`/members/${member.id}`}
-      className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-2.5 py-1 text-sm text-ink transition hover:border-[#d6d5d2] hover:bg-[#faf9f8]"
-    >
-      <EmojiAvatar emoji={member.emoji} size={22} />
-      <span className="font-medium">{member.name}</span>
-    </Link>
+    <span className="inline-flex items-center gap-2">
+      <Avatar name={member.name} size={size} />
+      <span className="font-medium text-ink">{member.name}</span>
+    </span>
   );
 }
 
 export function formatDate(d?: string | null): string {
   if (!d) return "";
-  // d is "YYYY-MM-DD"; render as "YYYY.MM.DD"
   return d.replaceAll("-", ".");
+}
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+export function weekday(d?: string | null): string {
+  if (!d) return "";
+  return WEEKDAYS[new Date(d + "T00:00:00").getDay()] + "요일";
 }

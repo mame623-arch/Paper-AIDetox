@@ -5,14 +5,16 @@ export type PaperStatus = "read" | "toread";
 export interface Member {
   id: string;
   name: string;
-  emoji: string;
   role: string;
+  sort: number;
   created_at: string;
 }
 
 export interface Session {
   id: string;
   date: string;
+  time: string;
+  location: string;
   title: string;
   created_at: string;
 }
@@ -40,8 +42,8 @@ export interface Highlight {
   created_at: string;
 }
 
-// Home page: one attendee of the latest session and the papers they read
-export interface SessionAttendee {
+// 한 사람 + 그 사람이 해당 세션에서 다룬 논문들
+export interface AttendeeReadings {
   member: Member;
   papers: Paper[];
 }

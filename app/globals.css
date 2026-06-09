@@ -2,13 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 레퍼런스(dami-safeagent)와 동일한 디자인 토큰 */
 :root {
-  --bg: #f7f7f5;
-  --panel: #ffffff;
-  --border: #ebeae8;
-  --text: #37352f;
-  --muted: #9b9a97;
-  --accent: #2e7d6b;
+  --bg: #ffffff;
+  --surface: #f6f7f9;
+  --surface-2: #eef1f4;
+  --ink: #1c1f26;
+  --body: #374151;
+  --muted: #6b7280;
+  --faint: #9aa1ab;
+  --border: #e3e6eb;
+  --border-strong: #d4d8de;
+  --accent: #2f6df6;
+  --accent-soft: #eaf1ff;
+  --accent-2: #5b8def;
+  --warn: #c2701c;
+  --ok: #3f7d58;
+  --sidebar-w: 248px;
 }
 
 html,
@@ -17,24 +27,42 @@ body {
 }
 
 body {
-  color: var(--text);
+  margin: 0;
   background: var(--bg);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo",
-    "Pretendard", "Malgun Gothic", sans-serif;
+  color: var(--body);
+  font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
 }
 
-/* thin, unobtrusive scrollbars to match the reference's calm look */
+h1 {
+  color: var(--ink);
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+h2 {
+  color: var(--ink);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
 * {
   scrollbar-width: thin;
-  scrollbar-color: #d9d8d5 transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #d9d8d5;
-  border-radius: 8px;
+  background: var(--border-strong);
+  border-radius: 9px;
 }
 
 .Highlight__part {

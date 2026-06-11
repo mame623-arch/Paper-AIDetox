@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { AttendeeReadings, Review, Session } from "@/lib/types";
+import type { AttendeeReadings, Paper, Review, Session } from "@/lib/types";
 import { createReview } from "@/lib/db";
 import { Avatar, Card, formatDate, weekday } from "./ui";
 
@@ -69,40 +69,16 @@ export default function SessionReadingsCard({
       ) : (
         <ul className="divide-y divide-line">
           {readings.map(({ member, papers }) => (
-            <li key={member.id} className="py-3 first:pt-0 last:pb-0">
-              <div className="flex items-start gap-3">
-                <Link href={`/members/${member.id}`} aria-label={member.name}>
-                  <Avatar name={member.name} />
-                </Link>
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/members/${member.id}`}
-                    className="font-medium text-ink hover:underline"
-                  >
-                    {member.name}
-                  </Link>
-                  <div className="mt-1 space-y-1">
-                    {papers.map((p) => (
-                      <Link
-                        key={p.id}
-                        href={`/members/${member.id}/papers/${p.id}`}
-                        className="block text-sm text-body hover:text-accent hover:underline"
-                      >
-                        📄 {p.title}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-                {mode === "read" && (
-                  <ReviewControl
-                    sessionId={session.id}
-                    memberId={member.id}
-                    review={byMember.get(member.id) ?? null}
-                    onSaved={onSaved}
-                  />
-                )}
-              </div>
-            </li>
+            <MemberReadingRow
+              key={member.id}
+              memberId={member.id}
+              memberName={member.name}
+              papers={papers}
+              sessionId={session.id}
+              showReview={mode === "read"}
+              review={byMember.get(member.id) ?? null}
+              onSaved={onSaved}
+            />
           ))}
         </ul>
       )}
@@ -110,41 +86,28 @@ export default function SessionReadingsCard({
   );
 }
 
-function ReviewControl({
-  sessionId,
+function MemberReadingRow({
   memberId,
+  memberName,
+  papers,
+  sessionId,
+  showReview,
   review,
   onSaved,
 }: {
-  sessionId: string;
   memberId: string;
+  memberName: string;
+  papers: Paper[];
+  sessionId: string;
+  showReview: boolean;
   review: Review | null;
   onSaved: (r: Review) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false); // 작성 완료된 한줄평 펼치기
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  // 이미 작성한 경우: 파란 버튼(작성 완료 표시) + 토글로 한줄평 펼치기
-  if (review) {
-    return (
-      <div className="shrink-0">
-        <button
-          onClick={() => setEditing((v) => !v)}
-          className="rounded-full bg-accent px-2.5 py-1 text-[0.72rem] font-semibold text-white"
-          title="한줄평 작성 완료"
-        >
-          ✓ 한줄평
-        </button>
-        {editing && (
-          <div className="mt-2 max-w-[220px] rounded-lg border border-line bg-surface px-3 py-2 text-sm text-body">
-            {review.text}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   const save = async () => {
     if (!text.trim()) {
@@ -170,47 +133,87 @@ function ReviewControl({
     }
   };
 
-  if (!editing) {
-    return (
-      <button
-        onClick={() => setEditing(true)}
-        className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[0.72rem] font-medium text-muted hover:border-accent hover:text-accent"
-      >
-        ＋ 한줄평
-      </button>
-    );
-  }
+  // 오른쪽 버튼: 작성 완료(파란 토글) / 미작성(+ 한줄평)
+  const button = !showReview ? null : review ? (
+    <button
+      onClick={() => setOpen((v) => !v)}
+      className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-[0.72rem] font-semibold text-white"
+      title="한줄평 작성 완료"
+    >
+      ✓ 한줄평
+    </button>
+  ) : (
+    <button
+      onClick={() => setEditing((v) => !v)}
+      className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[0.72rem] font-medium text-muted hover:border-accent hover:text-accent"
+    >
+      ＋ 한줄평
+    </button>
+  );
 
   return (
-    <div className="w-[230px] shrink-0">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={2}
-        autoFocus
-        placeholder="이번 스터디 느낀 점·총평"
-        className="w-full resize-none rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-      />
-      {error && <p className="mt-1 text-[0.7rem] text-[#b4543f]">{error}</p>}
-      <div className="mt-1 flex justify-end gap-1.5">
-        <button
-          onClick={() => {
-            setEditing(false);
-            setText("");
-            setError("");
-          }}
-          className="rounded-md px-2 py-1 text-[0.72rem] text-muted hover:bg-surface"
-        >
-          취소
-        </button>
-        <button
-          onClick={save}
-          disabled={saving}
-          className="rounded-md bg-accent px-2.5 py-1 text-[0.72rem] font-medium text-white disabled:opacity-60"
-        >
-          {saving ? "저장 중…" : "저장"}
-        </button>
+    <li className="py-3 first:pt-0 last:pb-0">
+      <div className="flex items-start gap-3">
+        <Link href={`/members/${memberId}`} aria-label={memberName}>
+          <Avatar name={memberName} />
+        </Link>
+        <div className="min-w-0 flex-1">
+          <Link href={`/members/${memberId}`} className="font-medium text-ink hover:underline">
+            {memberName}
+          </Link>
+          <div className="mt-1 space-y-1">
+            {papers.map((p) => (
+              <Link
+                key={p.id}
+                href={`/members/${memberId}/papers/${p.id}`}
+                className="block text-sm text-body hover:text-accent hover:underline"
+              >
+                📄 {p.title}
+              </Link>
+            ))}
+          </div>
+        </div>
+        {button}
       </div>
-    </div>
+
+      {/* 한줄평 패널: 멤버 칸 전체 폭 사용(논문 밑) */}
+      {showReview && review && open && (
+        <div className="mt-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-body sm:pl-12">
+          {review.text}
+        </div>
+      )}
+      {showReview && !review && editing && (
+        <div className="mt-2 sm:pl-12">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            autoFocus
+            placeholder="이번 스터디 느낀 점·총평"
+            className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          {error && <p className="mt-1 text-[0.7rem] text-[#b4543f]">{error}</p>}
+          <div className="mt-1 flex justify-end gap-1.5">
+            <button
+              onClick={() => {
+                setEditing(false);
+                setText("");
+                setError("");
+              }}
+              className="rounded-md px-2 py-1 text-[0.72rem] text-muted hover:bg-surface"
+            >
+              취소
+            </button>
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-md bg-accent px-2.5 py-1 text-[0.72rem] font-medium text-white disabled:opacity-60"
+            >
+              {saving ? "저장 중…" : "저장"}
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
   );
 }

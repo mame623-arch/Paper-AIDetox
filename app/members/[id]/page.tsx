@@ -141,6 +141,9 @@ function AddPaperForm({
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<PaperStatus>("toread");
   const [sessionId, setSessionId] = useState<string>("");
+  const [manual, setManual] = useState(false);
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualAuthors, setManualAuthors] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -148,6 +151,9 @@ function AddPaperForm({
     setUrl("");
     setStatus("toread");
     setSessionId("");
+    setManual(false);
+    setManualTitle("");
+    setManualAuthors("");
     setError("");
   };
 
@@ -160,14 +166,19 @@ function AddPaperForm({
     setSaving(true);
     setError("");
     try {
-      let title = "";
-      let authors = "";
-      try {
-        const meta = await fetchPaperMeta(url.trim());
-        title = meta.title;
-        authors = meta.authors;
-      } catch {
-        title = "(제목 미상)";
+      const mTitle = manualTitle.trim();
+      const mAuthors = manualAuthors.trim();
+      let title = mTitle;
+      let authors = mAuthors;
+      // 직접 입력값이 비어 있는 항목만 PDF/arXiv에서 자동으로 채운다
+      if (!mTitle || !mAuthors) {
+        try {
+          const meta = await fetchPaperMeta(url.trim());
+          if (!mTitle) title = meta.title;
+          if (!mAuthors) authors = meta.authors;
+        } catch {
+          if (!mTitle) title = "(제목 미상)";
+        }
       }
       const session = sessions.find((s) => s.id === sessionId) ?? null;
       await createPaper({
@@ -216,6 +227,49 @@ function AddPaperForm({
             autoFocus
           />
         </label>
+
+        {/* 제목·저자 직접 입력(선택) — 자동 취합이 깨질 때 사용 */}
+        {!manual ? (
+          <button
+            type="button"
+            onClick={() => setManual(true)}
+            className="text-xs font-medium text-accent hover:underline"
+          >
+            제목·저자 직접 입력 (자동 취합이 깨질 때)
+          </button>
+        ) : (
+          <div className="grid gap-3 rounded-lg border border-line bg-surface p-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted">제목</span>
+              <input
+                value={manualTitle}
+                onChange={(e) => setManualTitle(e.target.value)}
+                className="field"
+                placeholder="비워두면 링크에서 자동 취합"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted">저자</span>
+              <input
+                value={manualAuthors}
+                onChange={(e) => setManualAuthors(e.target.value)}
+                className="field"
+                placeholder="비워두면 링크에서 자동 취합"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setManual(false);
+                setManualTitle("");
+                setManualAuthors("");
+              }}
+              className="text-left text-xs text-muted hover:text-ink sm:col-span-2"
+            >
+              직접 입력 닫기 (자동 취합만 사용)
+            </button>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">

@@ -5,7 +5,7 @@
 --  schema.sql 을 먼저 실행한 뒤 이 파일을 실행합니다.
 -- ============================================================
 
-truncate table highlights, papers, sessions, members restart identity cascade;
+truncate table reviews, highlights, papers, sessions, members restart identity cascade;
 
 -- 스터디원 (요청한 순서대로) ----------------------------------
 insert into members (name, sort) values

@@ -5,6 +5,7 @@ import type {
   Member,
   Paper,
   PaperStatus,
+  Review,
   Session,
 } from "./types";
 
@@ -53,6 +54,16 @@ export async function fetchRecentSession(): Promise<Session | null> {
     .lte("date", today())
     .order("date", { ascending: false })
     .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data as Session | null;
+}
+
+export async function fetchSession(id: string): Promise<Session | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("*")
+    .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   return data as Session | null;
@@ -222,6 +233,31 @@ export async function createHighlight(
 export async function deleteHighlight(id: string): Promise<void> {
   const { error } = await supabase.from("highlights").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------- reviews (한줄평) ----------
+export async function fetchReviews(sessionId: string): Promise<Review[]> {
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data as Review[];
+}
+
+export async function createReview(input: {
+  session_id: string;
+  member_id: string;
+  text: string;
+}): Promise<Review> {
+  const { data, error } = await supabase
+    .from("reviews")
+    .insert(input)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Review;
 }
 
 // ---------- paper metadata (auto-fetch) ----------

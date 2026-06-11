@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { Session } from "@/lib/types";
 import {
   createSession,
@@ -139,14 +140,15 @@ export default function CalendarPage() {
                         {day}
                       </div>
                       {evs.map((e) => (
-                        <div
+                        <Link
                           key={e.id}
-                          title={`${e.title} ${e.time} ${e.location}`}
-                          className="mt-0.5 truncate rounded bg-accentsoft px-1 py-0.5 text-[0.66rem] font-bold text-accent"
+                          href={`/sessions/${e.id}`}
+                          title={`${e.title} ${e.time} ${e.location} — 기록 보기`}
+                          className="mt-0.5 block truncate rounded bg-accentsoft px-1 py-0.5 text-[0.66rem] font-bold text-accent hover:bg-accent hover:text-white"
                         >
                           {e.time ? e.time.split("–")[0] + " " : ""}
                           {e.title || "스터디"}
-                        </div>
+                        </Link>
                       ))}
                     </>
                   )}
@@ -448,7 +450,7 @@ function SessionRow({
 
   return (
     <li className="flex items-start gap-2 px-4 py-3">
-      <div className="min-w-0 flex-1">
+      <Link href={`/sessions/${session.id}`} className="min-w-0 flex-1 hover:opacity-80">
         <div className="font-medium text-ink">
           {formatDate(session.date)} ({weekday(session.date)})
         </div>
@@ -456,8 +458,9 @@ function SessionRow({
           {[session.time, session.location, session.title]
             .filter(Boolean)
             .join(" · ") || "세부 정보 없음"}
+          <span className="ml-1 text-accent">· 기록 보기 →</span>
         </div>
-      </div>
+      </Link>
       <button
         onClick={startEdit}
         className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"

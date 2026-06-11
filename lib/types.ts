@@ -42,6 +42,14 @@ export interface Highlight {
   created_at: string;
 }
 
+export interface Review {
+  id: string;
+  session_id: string;
+  member_id: string;
+  text: string;
+  created_at: string;
+}
+
 // 한 사람 + 그 사람이 해당 세션에서 다룬 논문들
 export interface AttendeeReadings {
   member: Member;

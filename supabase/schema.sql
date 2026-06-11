@@ -57,12 +57,24 @@ create table if not exists highlights (
   created_at timestamptz default now()
 );
 
+-- 한줄평(소감) — 세션별·멤버별 한 번만 ---------------------------
+create table if not exists reviews (
+  id         uuid primary key default gen_random_uuid(),
+  session_id uuid references sessions(id) on delete cascade,
+  member_id  uuid references members(id) on delete cascade,
+  text       text default '',
+  created_at timestamptz default now()
+);
+create unique index if not exists reviews_session_member_key
+  on reviews(session_id, member_id);
+
 -- 더 이상 사용하지 않는 테이블 정리(있으면 제거)
 drop table if exists session_attendees cascade;
 
 create index if not exists idx_papers_added_by on papers(added_by);
 create index if not exists idx_papers_session  on papers(session_id);
 create index if not exists idx_highlights_paper on highlights(paper_id);
+create index if not exists idx_reviews_session  on reviews(session_id);
 
 -- ------------------------------------------------------------
 -- RLS: 데모 단계 — anon 키로 읽기/쓰기 모두 허용
@@ -71,11 +83,12 @@ alter table members    enable row level security;
 alter table sessions   enable row level security;
 alter table papers     enable row level security;
 alter table highlights enable row level security;
+alter table reviews    enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['members','sessions','papers','highlights']
+  foreach t in array array['members','sessions','papers','highlights','reviews']
   loop
     execute format('drop policy if exists "public_all" on %I;', t);
     execute format('create policy "public_all" on %I for all using (true) with check (true);', t);

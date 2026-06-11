@@ -188,7 +188,7 @@ function ReviewControl({
         onChange={(e) => setText(e.target.value)}
         rows={2}
         autoFocus
-        placeholder="이번 글에서 좋았던 표현·문단 한 줄평"
+        placeholder="이번 스터디 느낀 점·총평"
         className="w-full resize-none rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm outline-none focus:border-accent"
       />
       {error && <p className="mt-1 text-[0.7rem] text-[#b4543f]">{error}</p>}

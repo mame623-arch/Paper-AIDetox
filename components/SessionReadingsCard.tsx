@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { AttendeeReadings, Paper, Review, Session } from "@/lib/types";
-import { createReview } from "@/lib/db";
+import { createReview, updateReview, deleteReview } from "@/lib/db";
+import { useCurrentMemberId } from "@/lib/currentUser";
 import { Avatar, Card, formatDate, weekday } from "./ui";
 
 export default function SessionReadingsCard({
@@ -20,12 +21,15 @@ export default function SessionReadingsCard({
   mode: "read" | "toread";
   emptyText: string;
 }) {
-  // 서버에서 받은 한줄평 + 이 화면에서 새로 작성한 한줄평을 합쳐 표시
-  const [localReviews, setLocalReviews] = useState<Review[]>([]);
-  const byMember = new Map<string, Review>();
-  for (const r of [...(reviews ?? []), ...localReviews]) {
-    byMember.set(r.member_id, r);
-  }
+  // 멤버별 한줄평 단일 소스. 서버 prop으로 초기화하고, 추가/수정/삭제를 반영.
+  const [reviewMap, setReviewMap] = useState<Map<string, Review>>(new Map());
+  const [currentMemberId] = useCurrentMemberId();
+
+  useEffect(() => {
+    const next = new Map<string, Review>();
+    for (const r of reviews ?? []) next.set(r.member_id, r);
+    setReviewMap(next);
+  }, [reviews]);
 
   if (!session) {
     return (
@@ -40,7 +44,14 @@ export default function SessionReadingsCard({
     );
   }
 
-  const onSaved = (review: Review) => setLocalReviews((prev) => [...prev, review]);
+  const upsertReview = (review: Review) =>
+    setReviewMap((prev) => new Map(prev).set(review.member_id, review));
+  const removeReview = (memberId: string) =>
+    setReviewMap((prev) => {
+      const next = new Map(prev);
+      next.delete(memberId);
+      return next;
+    });
 
   return (
     <Card>
@@ -76,8 +87,10 @@ export default function SessionReadingsCard({
               papers={papers}
               sessionId={session.id}
               showReview={mode === "read"}
-              review={byMember.get(member.id) ?? null}
-              onSaved={onSaved}
+              review={reviewMap.get(member.id) ?? null}
+              canEdit={currentMemberId === member.id}
+              onUpsert={upsertReview}
+              onRemove={removeReview}
             />
           ))}
         </ul>
@@ -93,7 +106,9 @@ function MemberReadingRow({
   sessionId,
   showReview,
   review,
-  onSaved,
+  canEdit,
+  onUpsert,
+  onRemove,
 }: {
   memberId: string;
   memberName: string;
@@ -101,13 +116,28 @@ function MemberReadingRow({
   sessionId: string;
   showReview: boolean;
   review: Review | null;
-  onSaved: (r: Review) => void;
+  canEdit: boolean;
+  onUpsert: (r: Review) => void;
+  onRemove: (memberId: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(false); // 작성/수정 폼 표시
   const [open, setOpen] = useState(false); // 작성 완료된 한줄평 펼치기
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+
+  const startEdit = () => {
+    setText(review?.text ?? "");
+    setError("");
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setText("");
+    setError("");
+  };
 
   const save = async () => {
     if (!text.trim()) {
@@ -117,39 +147,63 @@ function MemberReadingRow({
     setSaving(true);
     setError("");
     try {
-      const saved = await createReview({
-        session_id: sessionId,
-        member_id: memberId,
-        text: text.trim(),
-      });
-      onSaved(saved);
+      const saved = review
+        ? await updateReview(review.id, text.trim())
+        : await createReview({
+            session_id: sessionId,
+            member_id: memberId,
+            text: text.trim(),
+          });
+      onUpsert(saved);
       setEditing(false);
       setText("");
+      setOpen(true);
     } catch (err) {
       console.error(err);
-      setError("저장에 실패했습니다. (이미 작성했을 수 있어요)");
+      setError(
+        review ? "수정에 실패했습니다." : "저장에 실패했습니다. (이미 작성했을 수 있어요)"
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  // 오른쪽 버튼: 작성 완료(파란 토글) / 미작성(+ 한줄평)
+  const remove = async () => {
+    if (!review) return;
+    if (!window.confirm("한줄평을 삭제할까요?")) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteReview(review.id);
+      onRemove(memberId);
+      setOpen(false);
+      setEditing(false);
+      setText("");
+    } catch (err) {
+      console.error(err);
+      setError("삭제에 실패했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // 오른쪽 버튼: 작성 완료(파란 토글) / 본인 미작성(+ 한줄평)
   const button = !showReview ? null : review ? (
     <button
       onClick={() => setOpen((v) => !v)}
       className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-[0.72rem] font-semibold text-white"
-      title="한줄평 작성 완료"
+      title="한줄평 보기"
     >
       ✓ 한줄평
     </button>
-  ) : (
+  ) : canEdit ? (
     <button
-      onClick={() => setEditing((v) => !v)}
+      onClick={() => (editing ? cancelEdit() : startEdit())}
       className="shrink-0 rounded-full border border-line px-2.5 py-1 text-[0.72rem] font-medium text-muted hover:border-accent hover:text-accent"
     >
       ＋ 한줄평
     </button>
-  );
+  ) : null;
 
   return (
     <li className="py-3 first:pt-0 last:pb-0">
@@ -176,13 +230,35 @@ function MemberReadingRow({
         {button}
       </div>
 
-      {/* 한줄평 패널: 멤버 칸 전체 폭 사용(논문 밑) */}
-      {showReview && review && open && (
-        <div className="mt-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-body sm:pl-12">
-          {review.text}
+      {/* 한줄평 보기 패널: 멤버 칸 전체 폭 사용(논문 밑) */}
+      {showReview && review && open && !editing && (
+        <div className="mt-2 sm:pl-12">
+          <div className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-body">
+            {review.text}
+          </div>
+          {canEdit && (
+            <div className="mt-1 flex justify-end gap-1.5">
+              <button
+                onClick={startEdit}
+                className="rounded-md px-2 py-1 text-[0.72rem] text-muted hover:bg-surface"
+              >
+                수정
+              </button>
+              <button
+                onClick={remove}
+                disabled={deleting}
+                className="rounded-md px-2 py-1 text-[0.72rem] text-[#b4543f] hover:bg-surface disabled:opacity-60"
+              >
+                {deleting ? "삭제 중…" : "삭제"}
+              </button>
+            </div>
+          )}
+          {error && <p className="mt-1 text-[0.7rem] text-[#b4543f]">{error}</p>}
         </div>
       )}
-      {showReview && !review && editing && (
+
+      {/* 작성/수정 폼 (본인만) */}
+      {showReview && canEdit && editing && (
         <div className="mt-2 sm:pl-12">
           <textarea
             value={text}
@@ -195,11 +271,7 @@ function MemberReadingRow({
           {error && <p className="mt-1 text-[0.7rem] text-[#b4543f]">{error}</p>}
           <div className="mt-1 flex justify-end gap-1.5">
             <button
-              onClick={() => {
-                setEditing(false);
-                setText("");
-                setError("");
-              }}
+              onClick={cancelEdit}
               className="rounded-md px-2 py-1 text-[0.72rem] text-muted hover:bg-surface"
             >
               취소

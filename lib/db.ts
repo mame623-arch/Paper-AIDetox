@@ -260,6 +260,22 @@ export async function createReview(input: {
   return data as Review;
 }
 
+export async function updateReview(id: string, text: string): Promise<Review> {
+  const { data, error } = await supabase
+    .from("reviews")
+    .update({ text })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Review;
+}
+
+export async function deleteReview(id: string): Promise<void> {
+  const { error } = await supabase.from("reviews").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ---------- paper metadata (auto-fetch) ----------
 export interface PaperMeta {
   title: string;

@@ -16,6 +16,7 @@ import {
   fetchHighlights,
   updateHighlight,
 } from "@/lib/db";
+import { ENTER_HINT, submitOnEnter } from "@/lib/keys";
 import {
   DEFAULT_HIGHLIGHT_COLOR,
   HIGHLIGHT_COLORS,
@@ -162,6 +163,7 @@ function NewHighlightTip({
 }) {
   const [note, setNote] = useState("");
   const [color, setColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+  const save = () => onConfirm(note.trim(), color);
 
   return (
     <div className="w-[240px] rounded-lg border border-line bg-white p-2.5 shadow-[0_6px_20px_rgba(28,31,38,0.22)]">
@@ -174,10 +176,12 @@ function NewHighlightTip({
         rows={3}
         value={note}
         onChange={(e) => setNote(e.target.value)}
+        onKeyDown={submitOnEnter(save)}
         placeholder="메모 (선택)"
         className="w-full resize-none rounded-md border border-line px-2 py-1.5 text-[13px] outline-none focus:border-accent"
       />
-      <div className="mt-1.5 flex justify-end gap-1.5">
+      <div className="mt-0.5 text-[10px] text-faint">{ENTER_HINT}</div>
+      <div className="mt-1 flex justify-end gap-1.5">
         <button
           type="button"
           onClick={onCancel}
@@ -187,7 +191,7 @@ function NewHighlightTip({
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(note.trim(), color)}
+          onClick={save}
           className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-white"
         >
           저장
@@ -573,9 +577,13 @@ export default function PdfHighlighterView({
                             rows={3}
                             value={draftNote}
                             onChange={(e) => setDraftNote(e.target.value)}
+                            onKeyDown={submitOnEnter(() => saveEdit(h.id))}
                             placeholder="메모 (비워 두면 메모 없음)"
                             className="mt-1.5 w-full resize-y rounded-md border border-line bg-bg px-2 py-1.5 text-[13px] outline-none focus:border-accent"
                           />
+                          <div className="mt-0.5 text-[10px] text-faint">
+                            {ENTER_HINT}
+                          </div>
                           <div className="mt-1 flex justify-end gap-1.5">
                             <button
                               onClick={cancelEdit}

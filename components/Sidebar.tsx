@@ -14,13 +14,6 @@ const NAV = [
   { href: "/calendar", label: "캘린더", emoji: "🗓️" },
 ];
 
-const DECISIONS = [
-  "매주 목요일 10:00–12:00",
-  "처음 2주는 전원 필참",
-  "휴대폰 사용 자유",
-  "AI 없이 읽고 표현·구조 파악",
-];
-
 function dday(dateStr: string): string {
   const a = new Date(today() + "T00:00:00");
   const b = new Date(dateStr + "T00:00:00");
@@ -150,21 +143,6 @@ export default function Sidebar({
           </Link>
         ))}
       </nav>
-
-      {/* 결정사항 */}
-      <div className="mt-auto rounded-xl border border-line bg-bg p-3">
-        <div className="mb-2 text-[0.66rem] font-bold uppercase tracking-wide text-faint">
-          결정사항
-        </div>
-        <ul className="space-y-1.5">
-          {DECISIONS.map((d) => (
-            <li key={d} className="flex gap-1.5 text-[0.78rem] leading-snug text-muted">
-              <span className="text-accent">·</span>
-              <span>{d}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
     </aside>
   );
 }

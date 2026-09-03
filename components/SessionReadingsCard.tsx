@@ -11,6 +11,7 @@ import {
   updateReview,
 } from "@/lib/db";
 import { useCurrentMemberId } from "@/lib/currentUser";
+import { ENTER_HINT, submitOnEnter } from "@/lib/keys";
 import { Avatar, Card, formatDate, weekday } from "./ui";
 
 export default function SessionReadingsCard({
@@ -160,21 +161,20 @@ export default function SessionReadingsCard({
           <span className="text-sm font-semibold text-ink">
             참석 {rows.length}명
           </span>
-          <span className="text-[0.72rem] text-faint">
-            논문 {paperCount}편 · 논문을 올렸거나 출석 체크한 사람
-          </span>
+          <span className="text-[0.72rem] text-faint">논문 {paperCount}편</span>
           <div className="ml-auto flex items-center gap-2">
             {currentMemberId ? (
               <button
                 onClick={toggleMyAttendance}
                 disabled={attendBusy}
+                title={iAmAttending ? "참석 취소" : "참석 체크"}
                 className={`rounded-full px-3 py-1 text-[0.74rem] font-semibold transition disabled:opacity-60 ${
                   iAmAttending
                     ? "bg-accent text-white"
                     : "border border-line text-muted hover:border-accent hover:text-accent"
                 }`}
               >
-                {iAmAttending ? "✓ 참석함" : "＋ 나도 참석"}
+                {iAmAttending ? "✓ 참석" : "참석"}
               </button>
             ) : (
               <span className="text-[0.72rem] text-faint">
@@ -400,13 +400,15 @@ function MemberReadingRow({
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onKeyDown={submitOnEnter(save)}
             rows={3}
             autoFocus
             placeholder="이번 스터디 느낀 점·총평"
             className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
           />
           {error && <p className="mt-1 text-[0.7rem] text-[#b4543f]">{error}</p>}
-          <div className="mt-1 flex justify-end gap-1.5">
+          <div className="mt-1 flex items-center justify-end gap-1.5">
+            <span className="mr-auto text-[0.66rem] text-faint">{ENTER_HINT}</span>
             <button
               onClick={cancelEdit}
               className="rounded-md px-2 py-1 text-[0.72rem] text-muted hover:bg-surface"

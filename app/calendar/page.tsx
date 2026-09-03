@@ -15,6 +15,11 @@ import { Card, formatDate, weekday } from "@/components/ui";
 
 const WD = ["일", "월", "화", "수", "목", "금", "토"];
 
+// 일정 추가 기본값
+const DEFAULT_TIME = "14:00–16:00";
+const DEFAULT_LOCATION = "신공학관 5159";
+const defaultTitle = (n: number) => `논문 디톡스 ${n}차시`;
+
 function ymd(y: number, m: number, d: number): string {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
@@ -82,7 +87,7 @@ export default function CalendarPage() {
       <h1>캘린더</h1>
       <p className="mt-1 text-muted">스터디 일정을 추가하면 홈에 반영됩니다.</p>
 
-      <AddSessionForm onAdded={reload} />
+      <AddSessionForm nextIndex={sessions.length + 1} onAdded={reload} />
 
       {loading ? (
         <p className="mt-8 text-muted">불러오는 중…</p>
@@ -178,14 +183,31 @@ export default function CalendarPage() {
   );
 }
 
-function AddSessionForm({ onAdded }: { onAdded: () => Promise<void> }) {
+function AddSessionForm({
+  nextIndex,
+  onAdded,
+}: {
+  /** 새 일정의 차시 번호(= 기존 일정 수 + 1) */
+  nextIndex: number;
+  onAdded: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState("");
-  const [time, setTime] = useState("10:00–12:00");
-  const [location, setLocation] = useState("");
+  const [time, setTime] = useState(DEFAULT_TIME);
+  const [location, setLocation] = useState(DEFAULT_LOCATION);
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // 열 때마다 기본값을 새로 채운다(차시 번호가 그동안 늘었을 수 있다).
+  const openForm = () => {
+    setDate("");
+    setTime(DEFAULT_TIME);
+    setLocation(DEFAULT_LOCATION);
+    setTitle(defaultTitle(nextIndex));
+    setError("");
+    setOpen(true);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,10 +219,6 @@ function AddSessionForm({ onAdded }: { onAdded: () => Promise<void> }) {
     setError("");
     try {
       await createSession({ date, time, location, title });
-      setDate("");
-      setTime("10:00–12:00");
-      setLocation("");
-      setTitle("");
       setOpen(false);
       await onAdded();
     } catch (err) {
@@ -214,7 +232,7 @@ function AddSessionForm({ onAdded }: { onAdded: () => Promise<void> }) {
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={openForm}
         className="mt-5 rounded-lg border border-dashed border-linestrong bg-bg px-4 py-2.5 text-sm font-medium text-muted hover:border-accent hover:text-accent"
       >
         ＋ 일정 추가
@@ -241,7 +259,7 @@ function AddSessionForm({ onAdded }: { onAdded: () => Promise<void> }) {
               value={time}
               onChange={(e) => setTime(e.target.value)}
               className="cfield"
-              placeholder="10:00–12:00"
+              placeholder="14:00–16:00"
             />
           </label>
           <label className="block">
@@ -250,7 +268,7 @@ function AddSessionForm({ onAdded }: { onAdded: () => Promise<void> }) {
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               className="cfield"
-              placeholder="세미나실 A"
+              placeholder="신공학관 5159"
             />
           </label>
           <label className="block">
@@ -259,7 +277,7 @@ function AddSessionForm({ onAdded }: { onAdded: () => Promise<void> }) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="cfield"
-              placeholder="예: 2주차 — 전원 필참"
+              placeholder="논문 디톡스 3차시"
             />
           </label>
         </div>
@@ -396,7 +414,7 @@ function SessionRow({
               value={time}
               onChange={(e) => setTime(e.target.value)}
               className="rfield"
-              placeholder="10:00–12:00"
+              placeholder="14:00–16:00"
             />
             <input
               value={location}

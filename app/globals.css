@@ -65,6 +65,21 @@ h2 {
   border-radius: 9px;
 }
 
+/* 폼 입력 공통 */
+.field {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  outline: none;
+}
+.field:focus {
+  border-color: var(--accent);
+}
+
+/* PDF 하이라이트는 components/PdfHighlighterView.tsx 에서 인라인 색으로 그린다 */
 .Highlight__part {
   cursor: pointer;
 }

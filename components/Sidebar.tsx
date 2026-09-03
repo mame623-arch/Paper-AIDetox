@@ -32,10 +32,14 @@ function dday(dateStr: string): string {
 export default function Sidebar({
   members,
   mobileOpen,
+  collapsed,
+  onToggleCollapsed,
   onNavigate,
 }: {
   members: Member[];
   mobileOpen: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onNavigate: () => void;
 }) {
   const pathname = usePathname();
@@ -52,18 +56,48 @@ export default function Sidebar({
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
+  // 접힌 상태(데스크톱 전용) — 여는 버튼만 있는 좁은 레일
+  if (collapsed && !mobileOpen) {
+    return (
+      <aside className="hidden border-r border-line bg-surface md:sticky md:top-0 md:flex md:h-screen md:w-[40px] md:flex-col md:items-center md:pt-3">
+        <button
+          onClick={onToggleCollapsed}
+          title="사이드바 열기"
+          aria-label="사이드바 열기"
+          className="rounded-md border border-line bg-bg px-1.5 py-1 text-xs text-muted hover:border-accent hover:text-accent"
+        >
+          »
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside
       className={`${
         mobileOpen ? "fixed inset-y-0 left-0 z-50 flex w-[82%] max-w-[300px]" : "hidden"
       } flex-col gap-1 overflow-y-auto border-r border-line bg-surface px-3 pb-6 pt-4 md:sticky md:top-0 md:flex md:h-screen md:w-auto`}
     >
-      {/* 브랜드 */}
-      <Link href="/" onClick={onNavigate} className="flex items-baseline gap-1.5 px-1.5 pb-0.5 pt-1">
-        <span className="text-[1.15rem] font-extrabold text-ink">
-          논문 AI 디톡스 스터디
-        </span>
-      </Link>
+      {/* 브랜드 + 접기 */}
+      <div className="flex items-start justify-between gap-1">
+        <Link
+          href="/"
+          onClick={onNavigate}
+          className="flex items-baseline gap-1.5 px-1.5 pb-0.5 pt-1"
+        >
+          <span className="text-[1.15rem] font-extrabold text-ink">
+            논문 AI 디톡스 스터디
+          </span>
+        </Link>
+        <button
+          onClick={onToggleCollapsed}
+          title="사이드바 접기"
+          aria-label="사이드바 접기"
+          className="mt-1 hidden shrink-0 rounded-md border border-line bg-bg px-1.5 py-0.5 text-xs text-muted hover:border-accent hover:text-accent md:block"
+        >
+          «
+        </button>
+      </div>
       <div className="px-1.5 pb-2 text-[0.62rem] font-bold uppercase tracking-[0.06em] text-faint">
         AI 없이 읽기
       </div>

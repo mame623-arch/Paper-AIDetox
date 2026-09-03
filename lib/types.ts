@@ -38,6 +38,7 @@ export interface Highlight {
   text: string;
   position: ScaledPosition;
   note: string;
+  /** yellow | green | blue | pink | purple (lib/highlightColors.ts) */
   color: string;
   created_at: string;
 }
@@ -50,8 +51,18 @@ export interface Review {
   created_at: string;
 }
 
-// 한 사람 + 그 사람이 해당 세션에서 다룬 논문들
+/** 명시적 출석 체크 (논문을 안 올려도 참석으로 기록) */
+export interface Attendance {
+  id: string;
+  session_id: string;
+  member_id: string;
+  created_at: string;
+}
+
+// 한 사람의 세션 참여 기록 — 다룬 논문 + 출석 체크 여부
 export interface AttendeeReadings {
   member: Member;
   papers: Paper[];
+  /** session_attendees 에 직접 체크된 경우 true (논문 등록만 한 경우 false) */
+  attended: boolean;
 }

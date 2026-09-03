@@ -19,6 +19,7 @@ export default function HomePage() {
   const [recentReadings, setRecentReadings] = useState<AttendeeReadings[]>([]);
   const [upcomingReadings, setUpcomingReadings] = useState<AttendeeReadings[]>([]);
   const [recentReviews, setRecentReviews] = useState<Review[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,19 +29,20 @@ export default function HomePage() {
     }
     (async () => {
       try {
-        const [members, r, u]: [Member[], Session | null, Session | null] =
+        const [ms, r, u]: [Member[], Session | null, Session | null] =
           await Promise.all([
             fetchMembers(),
             fetchRecentSession(),
             fetchUpcomingSession(),
           ]);
+        setMembers(ms);
         setRecent(r);
         setUpcoming(u);
         if (r) {
-          setRecentReadings(await fetchSessionReadings(r.id, members));
+          setRecentReadings(await fetchSessionReadings(r.id, ms));
           setRecentReviews(await fetchReviews(r.id));
         }
-        if (u) setUpcomingReadings(await fetchSessionReadings(u.id, members));
+        if (u) setUpcomingReadings(await fetchSessionReadings(u.id, ms));
       } catch (e) {
         console.error(e);
       } finally {
@@ -67,6 +69,7 @@ export default function HomePage() {
             session={recent}
             readings={recentReadings}
             reviews={recentReviews}
+            members={members}
             mode="read"
             emptyText="아직 진행된 스터디가 없습니다."
           />
@@ -77,6 +80,7 @@ export default function HomePage() {
           <SessionReadingsCard
             session={upcoming}
             readings={upcomingReadings}
+            members={members}
             mode="toread"
             emptyText="예정된 스터디가 없습니다. 캘린더에서 일정을 추가하세요."
           />

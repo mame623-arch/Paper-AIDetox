@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Member, Paper } from "@/lib/types";
-import { fetchMember, fetchMembers, fetchPaper } from "@/lib/db";
+import { fetchMember, fetchPaper } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { StatusBadge } from "@/components/ui";
@@ -30,8 +30,13 @@ export default function PaperPage() {
 
   const [paper, setPaper] = useState<Paper | null>(null);
   const [owner, setOwner] = useState<Member | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  // 메모 패널 토글 — 작은 화면에서는 기본으로 접어 논문만 보이게 한다.
+  const [notesOpen, setNotesOpen] = useState(false);
+
+  useEffect(() => {
+    setNotesOpen(window.matchMedia("(min-width: 768px)").matches);
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -40,13 +45,11 @@ export default function PaperPage() {
     }
     (async () => {
       try {
-        const [p, ms, o] = await Promise.all([
+        const [p, o] = await Promise.all([
           fetchPaper(paperId),
-          fetchMembers(),
           fetchMember(memberId),
         ]);
         setPaper(p);
-        setMembers(ms);
         setOwner(o);
       } catch (e) {
         console.error(e);
@@ -74,7 +77,7 @@ export default function PaperPage() {
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col md:h-screen">
       {/* 논문 헤더 */}
-      <div className="flex items-center gap-3 border-b border-line bg-bg px-4 py-2.5 md:px-6">
+      <div className="flex items-center gap-2 border-b border-line bg-bg px-4 py-2.5 sm:gap-3 md:px-6">
         <Link
           href={`/members/${memberId}`}
           className="shrink-0 text-sm text-muted hover:text-ink"
@@ -91,6 +94,19 @@ export default function PaperPage() {
           </div>
         </div>
         <StatusBadge status={paper.status} />
+        {paper.pdf_url && (
+          <button
+            onClick={() => setNotesOpen((v) => !v)}
+            title="메모 패널 열기/닫기"
+            className={`shrink-0 rounded-md border px-2 py-1 text-xs transition ${
+              notesOpen
+                ? "border-accent bg-accentsoft font-medium text-accent"
+                : "border-line text-muted hover:border-accent hover:text-accent"
+            }`}
+          >
+            메모
+          </button>
+        )}
         {paper.pdf_url && (
           <a
             href={paper.pdf_url}
@@ -115,12 +131,14 @@ export default function PaperPage() {
           <PdfHighlighterView
             paperId={paper.id}
             pdfUrl={paper.pdf_url}
-            members={members}
             currentMemberId={currentMemberId}
+            notesOpen={notesOpen}
+            onCloseNotes={() => setNotesOpen(false)}
           />
         ) : (
           <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
-            이 논문에는 PDF 링크가 없습니다.
+            이 논문에는 PDF 링크가 없습니다. 멤버 페이지에서 <b>편집</b>으로 PDF
+            링크를 넣어 주세요.
           </div>
         )}
       </div>

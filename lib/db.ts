@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import type {
+  Attendance,
   AttendeeReadings,
   Highlight,
   Member,
@@ -111,15 +112,59 @@ export async function deleteSession(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** 세션에서 다룬 논문을 멤버별로 묶어 "누가 어떤 논문" 뷰를 만든다. */
+// ---------- 출석(참석) ----------
+/**
+ * 세션 참석자 목록.
+ * 마이그레이션(supabase/add-attendance-2026-09-03.sql) 전이라면 테이블이 없으므로,
+ * 실패해도 빈 목록으로 처리해 나머지 화면은 그대로 동작하게 한다.
+ */
+export async function fetchAttendance(sessionId: string): Promise<Attendance[]> {
+  const { data, error } = await supabase
+    .from("session_attendees")
+    .select("*")
+    .eq("session_id", sessionId);
+  if (error) {
+    console.warn("출석 정보를 불러오지 못했습니다(테이블 미생성?)", error.message);
+    return [];
+  }
+  return (data ?? []) as Attendance[];
+}
+
+export async function addAttendance(
+  sessionId: string,
+  memberId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("session_attendees")
+    .insert({ session_id: sessionId, member_id: memberId });
+  // 23505 = 이미 체크됨(unique 위반) — 성공으로 취급
+  if (error && error.code !== "23505") throw error;
+}
+
+export async function removeAttendance(
+  sessionId: string,
+  memberId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("session_attendees")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("member_id", memberId);
+  if (error) throw error;
+}
+
+/**
+ * "누가 참석해서 어떤 논문을 다뤘는지" 뷰.
+ * 참석 = 그 세션에 논문을 등록했거나(자동), 출석 체크를 했거나(수동).
+ */
 export async function fetchSessionReadings(
   sessionId: string,
   members: Member[]
 ): Promise<AttendeeReadings[]> {
-  const { data, error } = await supabase
-    .from("papers")
-    .select("*")
-    .eq("session_id", sessionId);
+  const [{ data, error }, attendance] = await Promise.all([
+    supabase.from("papers").select("*").eq("session_id", sessionId),
+    fetchAttendance(sessionId),
+  ]);
   if (error) throw error;
 
   const byMember = new Map<string, Paper[]>();
@@ -130,11 +175,14 @@ export async function fetchSessionReadings(
     byMember.set(p.added_by, list);
   }
 
+  const checked = new Set(attendance.map((a) => a.member_id));
   const memberById = new Map(members.map((m) => [m.id, m]));
-  return [...byMember.entries()]
-    .map(([memberId, papers]) => ({
+
+  return [...new Set([...byMember.keys(), ...checked])]
+    .map((memberId) => ({
       member: memberById.get(memberId)!,
-      papers,
+      papers: byMember.get(memberId) ?? [],
+      attended: checked.has(memberId),
     }))
     .filter((r) => r.member)
     .sort((a, b) => a.member.sort - b.member.sort);
@@ -193,6 +241,21 @@ export async function updatePaperStatus(
   if (error) throw error;
 }
 
+export interface PaperEditInput {
+  title: string;
+  authors: string;
+  pdf_url: string;
+}
+
+/** 제목·저자·링크 편집 */
+export async function updatePaper(
+  id: string,
+  input: PaperEditInput
+): Promise<void> {
+  const { error } = await supabase.from("papers").update(input).eq("id", id);
+  if (error) throw error;
+}
+
 export async function deletePaper(id: string): Promise<void> {
   const { error } = await supabase.from("papers").delete().eq("id", id);
   if (error) throw error;
@@ -215,7 +278,8 @@ export interface NewHighlightInput {
   text: string;
   position: Highlight["position"];
   note: string;
-  color?: string;
+  /** lib/highlightColors.ts 의 key */
+  color: string;
 }
 
 export async function createHighlight(
@@ -224,6 +288,20 @@ export async function createHighlight(
   const { data, error } = await supabase
     .from("highlights")
     .insert(input)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Highlight;
+}
+
+export async function updateHighlight(
+  id: string,
+  input: { note: string; color: string }
+): Promise<Highlight> {
+  const { data, error } = await supabase
+    .from("highlights")
+    .update(input)
+    .eq("id", id)
     .select("*")
     .single();
   if (error) throw error;
@@ -274,17 +352,4 @@ export async function updateReview(id: string, text: string): Promise<Review> {
 export async function deleteReview(id: string): Promise<void> {
   const { error } = await supabase.from("reviews").delete().eq("id", id);
   if (error) throw error;
-}
-
-// ---------- paper metadata (auto-fetch) ----------
-export interface PaperMeta {
-  title: string;
-  authors: string;
-  source: string;
-}
-
-export async function fetchPaperMeta(url: string): Promise<PaperMeta> {
-  const res = await fetch(`/api/paper-meta?url=${encodeURIComponent(url)}`);
-  if (!res.ok) throw new Error("metadata fetch failed");
-  return (await res.json()) as PaperMeta;
 }

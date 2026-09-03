@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Member } from "@/lib/types";
 import { fetchMembers } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import Sidebar from "./Sidebar";
 
+const COLLAPSE_KEY = "aidetox.sidebarCollapsed";
+
 export default function AppShell({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // 데스크톱에서 왼쪽 탭 접기 (모바일은 ☰ 드로어로 처리)
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -17,8 +21,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
       .catch((e) => console.error("멤버 로드 실패", e));
   }, []);
 
+  useEffect(() => {
+    setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === "1");
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[248px_minmax(0,1fr)]">
+    <div
+      className={`min-h-screen md:grid ${
+        collapsed
+          ? "md:grid-cols-[40px_minmax(0,1fr)]"
+          : "md:grid-cols-[248px_minmax(0,1fr)]"
+      }`}
+    >
       {/* 모바일 상단 바 */}
       <div className="sticky top-0 z-30 flex h-[52px] items-center gap-3 border-b border-line bg-bg px-3 md:hidden">
         <button
@@ -42,6 +64,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <Sidebar
         members={members}
         mobileOpen={mobileOpen}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
         onNavigate={() => setMobileOpen(false)}
       />
 

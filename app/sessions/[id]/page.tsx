@@ -21,6 +21,7 @@ export default function SessionDetailPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [readings, setReadings] = useState<AttendeeReadings[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,13 +31,14 @@ export default function SessionDetailPage() {
     }
     (async () => {
       try {
-        const [members, s]: [Member[], Session | null] = await Promise.all([
+        const [ms, s]: [Member[], Session | null] = await Promise.all([
           fetchMembers(),
           fetchSession(sessionId),
         ]);
+        setMembers(ms);
         setSession(s);
         if (s) {
-          setReadings(await fetchSessionReadings(s.id, members));
+          setReadings(await fetchSessionReadings(s.id, ms));
           setReviews(await fetchReviews(s.id));
         }
       } catch (e) {
@@ -67,11 +69,14 @@ export default function SessionDetailPage() {
             {session.title ? ` · ${session.title}` : ""}
           </p>
 
-          <SectionTitle hint={`${readings.length}명`}>읽은 논문 · 한줄평</SectionTitle>
+          <SectionTitle hint={`${readings.length}명 참석`}>
+            참석 · 읽은 논문 · 한줄평
+          </SectionTitle>
           <SessionReadingsCard
             session={session}
             readings={readings}
             reviews={reviews}
+            members={members}
             mode="read"
             emptyText="이 차시의 기록이 없습니다."
           />

@@ -8,10 +8,10 @@ import {
   createPaper,
   deletePaper,
   fetchMember,
-  fetchPaperMeta,
   fetchPapersByMember,
   fetchSessions,
   today,
+  updatePaper,
   updatePaperStatus,
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -138,52 +138,36 @@ function AddPaperForm({
   onAdded: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [authors, setAuthors] = useState("");
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<PaperStatus>("toread");
   const [sessionId, setSessionId] = useState<string>("");
-  const [manual, setManual] = useState(false);
-  const [manualTitle, setManualTitle] = useState("");
-  const [manualAuthors, setManualAuthors] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const reset = () => {
+    setTitle("");
+    setAuthors("");
     setUrl("");
     setStatus("toread");
     setSessionId("");
-    setManual(false);
-    setManualTitle("");
-    setManualAuthors("");
     setError("");
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) {
-      setError("PDF 링크를 입력하세요.");
+    if (!title.trim()) {
+      setError("제목을 입력하세요.");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      const mTitle = manualTitle.trim();
-      const mAuthors = manualAuthors.trim();
-      let title = mTitle;
-      let authors = mAuthors;
-      // 직접 입력값이 비어 있는 항목만 PDF/arXiv에서 자동으로 채운다
-      if (!mTitle || !mAuthors) {
-        try {
-          const meta = await fetchPaperMeta(url.trim());
-          if (!mTitle) title = meta.title;
-          if (!mAuthors) authors = meta.authors;
-        } catch {
-          if (!mTitle) title = "(제목 미상)";
-        }
-      }
       const session = sessions.find((s) => s.id === sessionId) ?? null;
       await createPaper({
-        title,
-        authors,
+        title: title.trim(),
+        authors: authors.trim(),
         pdf_url: url.trim(),
         added_by: memberId,
         status,
@@ -207,7 +191,7 @@ function AddPaperForm({
         onClick={() => setOpen(true)}
         className="rounded-lg border border-dashed border-linestrong bg-bg px-4 py-2.5 text-sm font-medium text-muted hover:border-accent hover:text-accent"
       >
-        ＋ 논문 기록 추가 (PDF 링크만 붙여넣기)
+        ＋ 논문 기록 추가
       </button>
     );
   }
@@ -216,60 +200,38 @@ function AddPaperForm({
     <Card>
       <form onSubmit={submit} className="space-y-3">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted">
-            PDF 링크 * — 제목·저자는 링크에서 자동으로 채워집니다
-          </span>
+          <span className="mb-1 block text-xs font-medium text-muted">제목 *</span>
           <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
             className="field"
-            placeholder="https://arxiv.org/pdf/1706.03762"
+            placeholder="Attention Is All You Need"
             autoFocus
           />
         </label>
 
-        {/* 제목·저자 직접 입력(선택) — 자동 취합이 깨질 때 사용 */}
-        {!manual ? (
-          <button
-            type="button"
-            onClick={() => setManual(true)}
-            className="text-xs font-medium text-accent hover:underline"
-          >
-            제목·저자 직접 입력 (자동 취합이 깨질 때)
-          </button>
-        ) : (
-          <div className="grid gap-3 rounded-lg border border-line bg-surface p-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted">제목</span>
-              <input
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.target.value)}
-                className="field"
-                placeholder="비워두면 링크에서 자동 취합"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted">저자</span>
-              <input
-                value={manualAuthors}
-                onChange={(e) => setManualAuthors(e.target.value)}
-                className="field"
-                placeholder="비워두면 링크에서 자동 취합"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                setManual(false);
-                setManualTitle("");
-                setManualAuthors("");
-              }}
-              className="text-left text-xs text-muted hover:text-ink sm:col-span-2"
-            >
-              직접 입력 닫기 (자동 취합만 사용)
-            </button>
-          </div>
-        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">저자</span>
+            <input
+              value={authors}
+              onChange={(e) => setAuthors(e.target.value)}
+              className="field"
+              placeholder="Ashish Vaswani 외"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              PDF 링크 — 넣으면 하이라이트·메모를 남길 수 있어요
+            </span>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="field"
+              placeholder="https://arxiv.org/pdf/1706.03762"
+            />
+          </label>
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
@@ -285,7 +247,7 @@ function AddPaperForm({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-muted">
-              스터디 일정 (선택)
+              스터디 일정 (선택) — 고르면 홈의 참석자에 표시돼요
             </span>
             <select
               value={sessionId}
@@ -310,7 +272,7 @@ function AddPaperForm({
             disabled={saving}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {saving ? "가져오는 중…" : "가져와서 추가"}
+            {saving ? "저장 중…" : "추가"}
           </button>
           <button
             type="button"
@@ -324,21 +286,6 @@ function AddPaperForm({
           </button>
         </div>
       </form>
-
-      <style jsx>{`
-        :global(.field) {
-          width: 100%;
-          border: 1px solid var(--border);
-          background: #fff;
-          border-radius: 8px;
-          padding: 8px 10px;
-          font-size: 14px;
-          outline: none;
-        }
-        :global(.field:focus) {
-          border-color: var(--accent);
-        }
-      `}</style>
     </Card>
   );
 }
@@ -354,6 +301,8 @@ function PaperList({
   emptyText: string;
   onChanged: () => Promise<void>;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const toggle = async (p: Paper) => {
     const next: PaperStatus = p.status === "read" ? "toread" : "read";
     await updatePaperStatus(
@@ -377,35 +326,147 @@ function PaperList({
         <p className="p-5 text-sm text-muted">{emptyText}</p>
       ) : (
         <ul className="divide-y divide-line">
-          {papers.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-surface">
-              <Link href={`/members/${memberId}/papers/${p.id}`} className="min-w-0 flex-1">
-                <div className="truncate font-medium text-ink">{p.title}</div>
-                <div className="truncate text-xs text-muted">
-                  {p.authors || "저자 미상"}
-                  {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
-                  {p.pdf_url ? " · PDF" : " · 링크 없음"}
-                </div>
-              </Link>
-              <StatusBadge status={p.status} />
-              <button
-                onClick={() => toggle(p)}
-                title="상태 전환"
-                className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+          {papers.map((p) =>
+            editingId === p.id ? (
+              <li key={p.id} className="px-4 py-3">
+                <EditPaperForm
+                  paper={p}
+                  onCancel={() => setEditingId(null)}
+                  onSaved={async () => {
+                    setEditingId(null);
+                    await onChanged();
+                  }}
+                />
+              </li>
+            ) : (
+              <li
+                key={p.id}
+                className="flex items-center gap-2 px-4 py-3 hover:bg-surface sm:gap-3"
               >
-                {p.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
-              </button>
-              <button
-                onClick={() => remove(p)}
-                title="삭제"
-                className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
-              >
-                ✕
-              </button>
-            </li>
-          ))}
+                <Link href={`/members/${memberId}/papers/${p.id}`} className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-ink">{p.title}</div>
+                  <div className="truncate text-xs text-muted">
+                    {p.authors || "저자 미상"}
+                    {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
+                    {p.pdf_url ? " · PDF" : " · 링크 없음"}
+                  </div>
+                </Link>
+                <StatusBadge status={p.status} />
+                <button
+                  onClick={() => toggle(p)}
+                  title="상태 전환"
+                  className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+                >
+                  {p.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
+                </button>
+                <button
+                  onClick={() => setEditingId(p.id)}
+                  title="제목·저자·링크 편집"
+                  className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+                >
+                  편집
+                </button>
+                <button
+                  onClick={() => remove(p)}
+                  title="삭제"
+                  className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
+                >
+                  ✕
+                </button>
+              </li>
+            )
+          )}
         </ul>
       )}
     </div>
+  );
+}
+
+function EditPaperForm({
+  paper,
+  onCancel,
+  onSaved,
+}: {
+  paper: Paper;
+  onCancel: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [title, setTitle] = useState(paper.title);
+  const [authors, setAuthors] = useState(paper.authors);
+  const [url, setUrl] = useState(paper.pdf_url);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      setError("제목을 입력하세요.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await updatePaper(paper.id, {
+        title: title.trim(),
+        authors: authors.trim(),
+        pdf_url: url.trim(),
+      });
+      await onSaved();
+    } catch (err) {
+      console.error(err);
+      setError("수정에 실패했습니다.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-2.5">
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-muted">제목 *</span>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="field"
+          autoFocus
+        />
+      </label>
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">저자</span>
+          <input
+            value={authors}
+            onChange={(e) => setAuthors(e.target.value)}
+            className="field"
+            placeholder="저자 미상"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">PDF 링크</span>
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            className="field"
+            placeholder="https://…"
+          />
+        </label>
+      </div>
+      {error && <p className="text-xs text-[#b4543f]">{error}</p>}
+      <div className="flex justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:bg-surface"
+        >
+          취소
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+        >
+          {saving ? "저장 중…" : "저장"}
+        </button>
+      </div>
+    </form>
   );
 }

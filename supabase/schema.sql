@@ -32,7 +32,7 @@ create table if not exists sessions (
 alter table sessions add column if not exists time     text default '';
 alter table sessions add column if not exists location text default '';
 
--- 논문(읽은/읽을) — 제목·저자는 PDF 링크에서 자동 취합 ----------
+-- 논문(읽은/읽을) — 제목·저자는 등록자가 직접 입력 ----------------
 create table if not exists papers (
   id         uuid primary key default gen_random_uuid(),
   title      text not null default '',
@@ -46,6 +46,8 @@ create table if not exists papers (
 );
 
 -- 하이라이트 + 메모 (react-pdf-highlighter position JSON) -------
+--  color: 하이라이트 색(yellow/green/blue/pink/purple)
+--  position.rects 가 비어 있으면 '영역(area)' 하이라이트
 create table if not exists highlights (
   id         uuid primary key default gen_random_uuid(),
   paper_id   uuid references papers(id) on delete cascade,
@@ -68,13 +70,23 @@ create table if not exists reviews (
 create unique index if not exists reviews_session_member_key
   on reviews(session_id, member_id);
 
--- 더 이상 사용하지 않는 테이블 정리(있으면 제거)
-drop table if exists session_attendees cascade;
+-- 출석 — 논문을 올리지 않고 참석만 한 사람도 기록 --------------
+--  · 논문을 올린 사람은 papers.session_id 로 자동 참석 처리
+--  · 이 표는 "논문 없이 참석" 을 포함한 명시적 출석 체크
+create table if not exists session_attendees (
+  id         uuid primary key default gen_random_uuid(),
+  session_id uuid references sessions(id) on delete cascade,
+  member_id  uuid references members(id)  on delete cascade,
+  created_at timestamptz default now()
+);
+create unique index if not exists session_attendees_session_member_key
+  on session_attendees(session_id, member_id);
 
 create index if not exists idx_papers_added_by on papers(added_by);
 create index if not exists idx_papers_session  on papers(session_id);
 create index if not exists idx_highlights_paper on highlights(paper_id);
 create index if not exists idx_reviews_session  on reviews(session_id);
+create index if not exists idx_attendees_session on session_attendees(session_id);
 
 -- ------------------------------------------------------------
 -- RLS: 데모 단계 — anon 키로 읽기/쓰기 모두 허용
@@ -84,11 +96,12 @@ alter table sessions   enable row level security;
 alter table papers     enable row level security;
 alter table highlights enable row level security;
 alter table reviews    enable row level security;
+alter table session_attendees enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['members','sessions','papers','highlights','reviews']
+  foreach t in array array['members','sessions','papers','highlights','reviews','session_attendees']
   loop
     execute format('drop policy if exists "public_all" on %I;', t);
     execute format('create policy "public_all" on %I for all using (true) with check (true);', t);

@@ -5,18 +5,21 @@
 --  schema.sql 을 먼저 실행한 뒤 이 파일을 실행합니다.
 -- ============================================================
 
-truncate table reviews, highlights, papers, sessions, members restart identity cascade;
+truncate table session_attendees, reviews, highlights, papers, sessions, members
+  restart identity cascade;
 
 -- 스터디원 (요청한 순서대로) ----------------------------------
 insert into members (name, sort) values
   ('김민석', 1),
-  ('김윤지', 2),
-  ('이거루', 3),
-  ('이윤석', 4),
-  ('이하늘', 5),
-  ('정승원', 6),
-  ('정승현', 7),
-  ('정지우', 8);
+  ('김민준', 2),
+  ('김윤지', 3),
+  ('이거루', 4),
+  ('이윤석', 5),
+  ('이하늘', 6),
+  ('장윤영', 7),
+  ('정승원', 8),
+  ('정승현', 9),
+  ('정지우', 10);
 
 -- 일정: 최근(지난) 스터디 + 예정 스터디 -----------------------
 insert into sessions (date, time, location, title) values

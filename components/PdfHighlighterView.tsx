@@ -28,6 +28,11 @@ import {
 // 동일 출처(public/)에서 서빙한다. (scripts/copy-pdf-worker.mjs 로 복사)
 const WORKER_SRC = "/pdf.worker.min.mjs";
 
+// 확대/축소 — 한 번에 20%씩, 40%~400% 범위
+const ZOOM_STEP = 1.2;
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 4;
+
 const resetHash = () => {
   if (typeof window !== "undefined") window.location.hash = "";
 };
@@ -209,8 +214,16 @@ export default function PdfHighlighterView({
   const [loadError, setLoadError] = useState<string>("");
   // 켜면 드래그가 '영역 선택'이 된다. (끄면 평소처럼 문장 드래그)
   const [areaMode, setAreaMode] = useState(false);
-  const [colorEditId, setColorEditId] = useState<string | null>(null);
+  // 메모 수정 — 열려 있는 하이라이트 id 와 임시 입력값
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftNote, setDraftNote] = useState("");
+  const [draftColor, setDraftColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+  const [savingEdit, setSavingEdit] = useState(false);
+  // 확대·축소 — pdf.js 가 이해하는 값("page-width" 또는 "1.25" 같은 배율 문자열)
+  const [scale, setScale] = useState("page-width");
+  const [zoomPct, setZoomPct] = useState(100);
   const scrollToRef = useRef<((h: IHighlight) => void) | null>(null);
+  const highlighterRef = useRef<PdfHighlighter<IHighlight> | null>(null);
 
   // 워커 스레드에서도 동일 출처로 정확히 fetch 되도록 절대 URL 사용
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -224,6 +237,59 @@ export default function PdfHighlighterView({
         setLoadError("하이라이트를 불러오지 못했습니다.");
       });
   }, [paperId]);
+
+  // 현재 배율(%)을 뷰어에서 받아 온다. 창 크기가 바뀌면 page-width 배율도 바뀌므로
+  // 버튼을 누를 때만이 아니라 pdf.js 의 scalechanging 이벤트를 구독한다.
+  useEffect(() => {
+    let cancelled = false;
+    let detach: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let tries = 0;
+
+    const attach = () => {
+      if (cancelled) return;
+      const viewer = highlighterRef.current?.viewer;
+      if (!viewer?.eventBus) {
+        // PDF 로딩이 끝나야 뷰어가 생긴다. 잠깐씩 다시 시도.
+        if (tries++ < 100) timer = setTimeout(attach, 200);
+        return;
+      }
+      const onScaleChanging = (e: { scale?: number }) => {
+        if (typeof e.scale === "number") setZoomPct(Math.round(e.scale * 100));
+      };
+      viewer.eventBus.on("scalechanging", onScaleChanging);
+      detach = () => viewer.eventBus.off("scalechanging", onScaleChanging);
+      if (viewer.currentScale) setZoomPct(Math.round(viewer.currentScale * 100));
+    };
+
+    attach();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      detach?.();
+    };
+  }, [pdfUrl]);
+
+  /**
+   * 배율 적용. state 로도 들고 있어야 창 크기 변경/패널 토글 뒤에도
+   * (PdfHighlighter 가 pdfScaleValue 로 되돌리므로) 배율이 유지된다.
+   */
+  const applyScale = (value: string) => {
+    setScale(value);
+    const viewer = highlighterRef.current?.viewer;
+    if (!viewer) return;
+    try {
+      viewer.currentScaleValue = value;
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const zoomBy = (factor: number) => {
+    const current = highlighterRef.current?.viewer?.currentScale ?? zoomPct / 100;
+    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, current * factor));
+    applyScale(next.toFixed(2));
+  };
 
   const highlights = dbHighlights.map(toIHighlight);
 
@@ -249,20 +315,31 @@ export default function PdfHighlighterView({
     }
   };
 
-  const changeColor = async (h: DBHighlight, color: string) => {
-    setColorEditId(null);
-    const before = h.color;
-    setDbHighlights((prev) =>
-      prev.map((x) => (x.id === h.id ? { ...x, color } : x))
-    );
+  const startEdit = (h: DBHighlight) => {
+    setEditingId(h.id);
+    setDraftNote(h.note ?? "");
+    setDraftColor(h.color || DEFAULT_HIGHLIGHT_COLOR);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setDraftNote("");
+  };
+
+  const saveEdit = async (id: string) => {
+    setSavingEdit(true);
     try {
-      await updateHighlight(h.id, { note: h.note, color });
+      const saved = await updateHighlight(id, {
+        note: draftNote.trim(),
+        color: draftColor,
+      });
+      setDbHighlights((prev) => prev.map((x) => (x.id === id ? saved : x)));
+      cancelEdit();
     } catch (e) {
       console.error(e);
-      setDbHighlights((prev) =>
-        prev.map((x) => (x.id === h.id ? { ...x, color: before } : x))
-      );
-      alert("색 변경에 실패했습니다.");
+      alert("메모 수정에 실패했습니다.");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -301,10 +378,11 @@ export default function PdfHighlighterView({
         >
           {(pdfDocument) => (
             <PdfHighlighter
+              ref={highlighterRef}
               pdfDocument={pdfDocument}
               enableAreaSelection={(event) => areaMode || event.altKey}
               onScrollChange={resetHash}
-              pdfScaleValue="page-width"
+              pdfScaleValue={scale}
               scrollRef={(scrollTo) => {
                 scrollToRef.current = scrollTo;
               }}
@@ -373,18 +451,46 @@ export default function PdfHighlighterView({
           )}
         </PdfLoader>
 
-        {/* 영역 선택 토글 — Alt 키 없이도 박스를 그릴 수 있게 */}
-        <button
-          onClick={() => setAreaMode((v) => !v)}
-          title="켜면 드래그로 그림·표 영역을 네모로 하이라이트합니다"
-          className={`absolute left-3 top-3 z-20 rounded-full px-3 py-1 text-[11px] font-semibold shadow transition ${
-            areaMode
-              ? "bg-accent text-white"
-              : "bg-white/90 text-muted hover:text-accent"
-          }`}
-        >
-          {areaMode ? "■ 영역 선택 켜짐" : "□ 영역 선택"}
-        </button>
+        {/* 툴바 — 영역 선택 토글 + 확대/축소 */}
+        <div className="absolute left-3 top-3 z-20 flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setAreaMode((v) => !v)}
+            title="켜면 드래그로 그림·표 영역을 네모로 하이라이트합니다"
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold shadow transition ${
+              areaMode
+                ? "bg-accent text-white"
+                : "bg-white/90 text-muted hover:text-accent"
+            }`}
+          >
+            {areaMode ? "■ 영역 선택 켜짐" : "□ 영역 선택"}
+          </button>
+
+          <div className="flex items-center gap-0.5 rounded-full bg-white/90 px-1 py-0.5 shadow">
+            <button
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+              title="축소"
+              aria-label="축소"
+              className="h-6 w-6 rounded-full text-[13px] font-bold leading-none text-muted hover:bg-surface2 hover:text-accent"
+            >
+              −
+            </button>
+            <button
+              onClick={() => applyScale("page-width")}
+              title="너비에 맞추기"
+              className="min-w-[46px] rounded-full px-1 text-[11px] font-semibold text-muted hover:text-accent"
+            >
+              {zoomPct}%
+            </button>
+            <button
+              onClick={() => zoomBy(ZOOM_STEP)}
+              title="확대"
+              aria-label="확대"
+              className="h-6 w-6 rounded-full text-[13px] font-bold leading-none text-muted hover:bg-surface2 hover:text-accent"
+            >
+              ＋
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* 메모 패널 — 작은 화면에서는 PDF 위에 겹쳐 뜬다 */}
@@ -398,7 +504,7 @@ export default function PdfHighlighterView({
               <div className="text-[11px] leading-snug text-muted">
                 {areaMode
                   ? "영역 선택 켜짐 — 드래그로 네모를 그리세요. (문장 선택은 잠시 꺼짐)"
-                  : "문장을 드래그하면 색과 메모를 남길 수 있어요."}
+                  : "문장을 드래그하면 색과 메모를 남길 수 있어요. 남긴 메모는 아래에서 수정합니다."}
               </div>
             </div>
             <button
@@ -422,6 +528,7 @@ export default function PdfHighlighterView({
                 {dbHighlights.map((h) => {
                   const c = highlightColor(h.color);
                   const isArea = isAreaPosition(h.position);
+                  const editing = editingId === h.id;
                   return (
                     <li key={h.id} className="group px-4 py-3 hover:bg-[#faf9f8]">
                       <button
@@ -447,23 +554,49 @@ export default function PdfHighlighterView({
                             </blockquote>
                           )
                         )}
-                        {h.note && (
+                        {!editing && h.note && (
                           <p className="mt-1.5 whitespace-pre-wrap text-sm text-ink">
                             {h.note}
                           </p>
                         )}
                       </button>
-                      <div className="mt-1.5 flex items-center justify-between gap-2">
-                        {colorEditId === h.id ? (
+
+                      {editing ? (
+                        <div className="mt-2">
                           <ColorSwatches
-                            value={h.color}
-                            size={16}
-                            onChange={(key) => changeColor(h, key)}
+                            value={draftColor}
+                            size={18}
+                            onChange={setDraftColor}
                           />
-                        ) : (
+                          <textarea
+                            autoFocus
+                            rows={3}
+                            value={draftNote}
+                            onChange={(e) => setDraftNote(e.target.value)}
+                            placeholder="메모 (비워 두면 메모 없음)"
+                            className="mt-1.5 w-full resize-y rounded-md border border-line bg-bg px-2 py-1.5 text-[13px] outline-none focus:border-accent"
+                          />
+                          <div className="mt-1 flex justify-end gap-1.5">
+                            <button
+                              onClick={cancelEdit}
+                              className="rounded-md px-2 py-1 text-[11px] text-muted hover:bg-surface"
+                            >
+                              취소
+                            </button>
+                            <button
+                              onClick={() => saveEdit(h.id)}
+                              disabled={savingEdit}
+                              className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-60"
+                            >
+                              {savingEdit ? "저장 중…" : "저장"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
                           <button
-                            onClick={() => setColorEditId(h.id)}
-                            title="색 바꾸기"
+                            onClick={() => startEdit(h)}
+                            title="색·메모 수정"
                             className="flex items-center gap-1.5 text-[11px] text-muted hover:text-ink"
                           >
                             <span
@@ -475,14 +608,22 @@ export default function PdfHighlighterView({
                             />
                             {c.label}
                           </button>
-                        )}
-                        <button
-                          onClick={() => removeHighlight(h.id)}
-                          className="text-[11px] text-muted opacity-0 transition hover:text-red-600 group-hover:opacity-100"
-                        >
-                          삭제
-                        </button>
-                      </div>
+                          <div className="flex items-center gap-2 transition md:opacity-0 md:group-hover:opacity-100">
+                            <button
+                              onClick={() => startEdit(h)}
+                              className="text-[11px] text-muted hover:text-accent"
+                            >
+                              {h.note ? "메모 수정" : "메모 추가"}
+                            </button>
+                            <button
+                              onClick={() => removeHighlight(h.id)}
+                              className="text-[11px] text-muted hover:text-red-600"
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

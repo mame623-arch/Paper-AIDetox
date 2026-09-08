@@ -31,12 +31,12 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
 
   // 내 참여 일정 — 논문을 올렸거나 출석 체크한 차시.
-  // 켜도 일정을 숨기지 않고 미참여 일정을 흐리게만 표시한다
-  // (예정 일정은 아직 참여 기록이 없어서 숨기면 통째로 사라진다).
+  // 켜면 달력·목록에서 내가 참여한 일정만 남긴다.
+  // (아직 참여 기록이 없는 예정 일정도 함께 빠진다.)
   const [currentMemberId] = useCurrentMemberId();
   const [mySessionIds, setMySessionIds] = useState<Set<string>>(new Set());
   const [onlyMine, setOnlyMine] = useState(false);
-  const dimOthers = onlyMine && Boolean(currentMemberId);
+  const filterMine = onlyMine && Boolean(currentMemberId);
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -71,15 +71,20 @@ export default function CalendarPage() {
     // 일정/논문이 바뀌면 참여 집합도 다시 읽는다.
   }, [currentMemberId, sessions]);
 
+  const visibleSessions = useMemo(
+    () => (filterMine ? sessions.filter((s) => mySessionIds.has(s.id)) : sessions),
+    [sessions, filterMine, mySessionIds]
+  );
+
   const byDate = useMemo(() => {
     const map = new Map<string, Session[]>();
-    for (const s of sessions) {
+    for (const s of visibleSessions) {
       const list = map.get(s.date) ?? [];
       list.push(s);
       map.set(s.date, list);
     }
     return map;
-  }, [sessions]);
+  }, [visibleSessions]);
 
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -102,10 +107,10 @@ export default function CalendarPage() {
     } else setMonth((m) => m + 1);
   };
 
-  const upcoming = sessions
+  const upcoming = visibleSessions
     .filter((s) => s.date >= today())
     .sort((a, b) => a.date.localeCompare(b.date));
-  const past = sessions
+  const past = visibleSessions
     .filter((s) => s.date < today())
     .sort((a, b) => b.date.localeCompare(a.date));
 
@@ -142,14 +147,14 @@ export default function CalendarPage() {
               {currentMemberId ? (
                 <button
                   onClick={() => setOnlyMine((v) => !v)}
-                  title="내가 논문을 올렸거나 참석 체크한 일정만 진하게 표시합니다 (나머지는 흐리게)"
+                  title="내가 논문을 올렸거나 참석 체크한 일정만 남깁니다"
                   className={`rounded-full px-3 py-1 text-[0.74rem] font-semibold transition ${
-                    dimOthers
+                    filterMine
                       ? "bg-accent text-white"
                       : "border border-line text-muted hover:border-accent hover:text-accent"
                   }`}
                 >
-                  {dimOthers ? `✓ 내 참여만 (${mySessionIds.size})` : "내 참여만"}
+                  {filterMine ? `✓ 내 참여만 (${mySessionIds.size})` : "내 참여만"}
                 </button>
               ) : (
                 <span className="text-[0.72rem] text-faint">
@@ -191,26 +196,17 @@ export default function CalendarPage() {
                       >
                         {day}
                       </div>
-                      {evs.map((e) => {
-                        const faded = dimOthers && !mySessionIds.has(e.id);
-                        return (
-                          <Link
-                            key={e.id}
-                            href={`/sessions/${e.id}`}
-                            title={`${e.title} ${e.time} ${e.location} — 기록 보기${
-                              faded ? " (내 참여 기록 없음)" : ""
-                            }`}
-                            className={`mt-0.5 block truncate rounded px-1 py-0.5 text-[0.66rem] transition ${
-                              faded
-                                ? "bg-surface2 font-medium text-faint hover:text-muted"
-                                : "bg-accentsoft font-bold text-accent hover:bg-accent hover:text-white"
-                            }`}
-                          >
-                            {e.time ? e.time.split("–")[0] + " " : ""}
-                            {e.title || "스터디"}
-                          </Link>
-                        );
-                      })}
+                      {evs.map((e) => (
+                        <Link
+                          key={e.id}
+                          href={`/sessions/${e.id}`}
+                          title={`${e.title} ${e.time} ${e.location} — 기록 보기`}
+                          className="mt-0.5 block truncate rounded bg-accentsoft px-1 py-0.5 text-[0.66rem] font-bold text-accent hover:bg-accent hover:text-white"
+                        >
+                          {e.time ? e.time.split("–")[0] + " " : ""}
+                          {e.title || "스터디"}
+                        </Link>
+                      ))}
                     </>
                   )}
                 </div>
@@ -223,15 +219,19 @@ export default function CalendarPage() {
             <SessionList
               title="예정 일정"
               sessions={upcoming}
-              emptyText="예정된 일정이 없습니다."
-              isFaded={(s) => dimOthers && !mySessionIds.has(s.id)}
+              emptyText={
+                filterMine
+                  ? "참여한 예정 일정이 없습니다."
+                  : "예정된 일정이 없습니다."
+              }
               onChanged={reload}
             />
             <SessionList
               title="지난 일정"
               sessions={past}
-              emptyText="지난 일정이 없습니다."
-              isFaded={(s) => dimOthers && !mySessionIds.has(s.id)}
+              emptyText={
+                filterMine ? "참여한 지난 일정이 없습니다." : "지난 일정이 없습니다."
+              }
               onChanged={reload}
             />
           </div>
@@ -382,14 +382,11 @@ function SessionList({
   title,
   sessions,
   emptyText,
-  isFaded,
   onChanged,
 }: {
   title: string;
   sessions: Session[];
   emptyText: string;
-  /** "내 참여만" 이 켜졌을 때 내 참여 기록이 없는 일정 */
-  isFaded: (s: Session) => boolean;
   onChanged: () => Promise<void>;
 }) {
   return (
@@ -401,12 +398,7 @@ function SessionList({
         ) : (
           <ul className="divide-y divide-line">
             {sessions.map((s) => (
-              <SessionRow
-                key={s.id}
-                session={s}
-                faded={isFaded(s)}
-                onChanged={onChanged}
-              />
+              <SessionRow key={s.id} session={s} onChanged={onChanged} />
             ))}
           </ul>
         )}
@@ -417,11 +409,9 @@ function SessionList({
 
 function SessionRow({
   session,
-  faded,
   onChanged,
 }: {
   session: Session;
-  faded: boolean;
   onChanged: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -535,11 +525,7 @@ function SessionRow({
   }
 
   return (
-    <li
-      className={`flex items-start gap-2 px-4 py-3 transition ${
-        faded ? "opacity-45 hover:opacity-100" : ""
-      }`}
-    >
+    <li className="flex items-start gap-2 px-4 py-3">
       <Link href={`/sessions/${session.id}`} className="min-w-0 flex-1 hover:opacity-80">
         <div className="font-medium text-ink">
           {formatDate(session.date)} ({weekday(session.date)})

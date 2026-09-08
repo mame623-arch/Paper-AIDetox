@@ -17,6 +17,7 @@ import {
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { useCurrentMemberId } from "@/lib/currentUser";
+import { useSessionReview } from "@/components/SessionReview";
 import { Avatar, Card, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
 
 export default function MemberPage() {
@@ -58,6 +59,15 @@ export default function MemberPage() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId]);
+
+  const upsertReview = (r: Review) =>
+    setReviewBySession((prev) => new Map(prev).set(r.session_id, r));
+  const removeReview = (r: Review) =>
+    setReviewBySession((prev) => {
+      const next = new Map(prev);
+      next.delete(r.session_id);
+      return next;
+    });
 
   const sessionById = useMemo(
     () => new Map(sessions.map((s) => [s.id, s])),
@@ -109,8 +119,18 @@ export default function MemberPage() {
         </div>
       </div>
 
-      {canEdit && (
-        <AddPaperForm memberId={memberId} sessions={sessions} onAdded={reload} />
+      {canEdit ? (
+        <AddPaperForm
+          memberId={memberId}
+          sessions={sessions}
+          onAdded={reload}
+        />
+      ) : (
+        <p className="rounded-lg border border-dashed border-line bg-surface px-4 py-2.5 text-sm text-muted">
+          {currentMemberId
+            ? `${member.name} 님의 기록입니다. 보기만 할 수 있어요.`
+            : "사이드바에서 내 이름을 고르면 내 기록을 추가·편집할 수 있어요."}
+        </p>
       )}
 
       {/* 검색 */}
@@ -131,6 +151,8 @@ export default function MemberPage() {
         reviewBySession={reviewBySession}
         sessionById={sessionById}
         canEdit={canEdit}
+        onReviewUpsert={upsertReview}
+        onReviewRemove={removeReview}
         emptyText={query ? "검색 결과가 없습니다." : "아직 읽은 논문이 없습니다."}
         onChanged={reload}
       />
@@ -142,13 +164,9 @@ export default function MemberPage() {
         reviewBySession={reviewBySession}
         sessionById={sessionById}
         canEdit={canEdit}
-        emptyText={
-          query
-            ? "검색 결과가 없습니다."
-            : canEdit
-            ? "읽을 논문을 추가해 보세요."
-            : "읽을 논문이 없습니다."
-        }
+        onReviewUpsert={upsertReview}
+        onReviewRemove={removeReview}
+        emptyText={query ? "검색 결과가 없습니다." : "읽을 논문을 추가해 보세요."}
         onChanged={reload}
       />
     </div>
@@ -324,6 +342,8 @@ function PaperList({
   sessionById,
   canEdit,
   emptyText,
+  onReviewUpsert,
+  onReviewRemove,
   onChanged,
 }: {
   memberId: string;
@@ -334,6 +354,8 @@ function PaperList({
   /** 본인 페이지일 때만 추가·편집·삭제 버튼을 노출한다 */
   canEdit: boolean;
   emptyText: string;
+  onReviewUpsert: (r: Review) => void;
+  onReviewRemove: (r: Review) => void;
   onChanged: () => Promise<void>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -361,15 +383,8 @@ function PaperList({
         <p className="p-5 text-sm text-muted">{emptyText}</p>
       ) : (
         <ul className="divide-y divide-line">
-          {papers.map((p) => {
-            const review = p.session_id
-              ? reviewBySession.get(p.session_id) ?? null
-              : null;
-            const session = p.session_id
-              ? sessionById.get(p.session_id) ?? null
-              : null;
-
-            return editingId === p.id ? (
+          {papers.map((p) =>
+            editingId === p.id ? (
               <li key={p.id} className="px-4 py-3">
                 <EditPaperForm
                   paper={p}
@@ -381,70 +396,114 @@ function PaperList({
                 />
               </li>
             ) : (
-              <li key={p.id} className="px-4 py-3 hover:bg-surface">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <Link
-                    href={`/members/${memberId}/papers/${p.id}`}
-                    className="min-w-0 flex-1"
-                  >
-                    <div className="truncate font-medium text-ink">{p.title}</div>
-                    <div className="truncate text-xs text-muted">
-                      {p.authors || "저자 미상"}
-                      {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
-                      {p.pdf_url ? " · PDF" : " · 링크 없음"}
-                    </div>
-                  </Link>
-                  <StatusBadge status={p.status} />
-                  {canEdit && (
-                    <>
-                      <button
-                        onClick={() => toggle(p)}
-                        title="상태 전환"
-                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
-                      >
-                        {p.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
-                      </button>
-                      <button
-                        onClick={() => setEditingId(p.id)}
-                        title="제목·저자·링크 편집"
-                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
-                      >
-                        편집
-                      </button>
-                      <button
-                        onClick={() => remove(p)}
-                        title="삭제"
-                        className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
-                      >
-                        ✕
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {/* 그 차시에 남긴 한줄평 — 한줄평은 논문이 아니라 차시 단위라
-                    같은 차시의 논문에는 같은 글이 붙는다. */}
-                {review && (
-                  <div className="mt-2 rounded-lg border border-line bg-surface px-3 py-2">
-                    <div className="text-[0.68rem] font-semibold text-faint">
-                      한줄평
-                      {session
-                        ? ` · ${formatDate(session.date)}${
-                            session.title ? ` ${session.title}` : ""
-                          }`
-                        : ""}
-                    </div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-sm text-body">
-                      {review.text}
-                    </p>
-                  </div>
-                )}
-              </li>
-            );
-          })}
+              <PaperRow
+                key={p.id}
+                memberId={memberId}
+                paper={p}
+                session={
+                  p.session_id ? sessionById.get(p.session_id) ?? null : null
+                }
+                review={
+                  p.session_id ? reviewBySession.get(p.session_id) ?? null : null
+                }
+                canEdit={canEdit}
+                onEdit={() => setEditingId(p.id)}
+                onToggle={() => toggle(p)}
+                onRemove={() => remove(p)}
+                onReviewUpsert={onReviewUpsert}
+                onReviewRemove={onReviewRemove}
+              />
+            )
+          )}
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * 논문 한 줄. 한줄평은 홈·차시 상세와 같은 UI(useSessionReview)를 쓴다.
+ * 한줄평은 논문이 아니라 차시 단위라, 같은 차시의 논문 줄에는 같은 글이 붙고
+ * 한 곳에서 고치면 페이지의 다른 줄에도 함께 반영된다.
+ */
+function PaperRow({
+  memberId,
+  paper,
+  session,
+  review,
+  canEdit,
+  onEdit,
+  onToggle,
+  onRemove,
+  onReviewUpsert,
+  onReviewRemove,
+}: {
+  memberId: string;
+  paper: Paper;
+  session: Session | null;
+  review: Review | null;
+  canEdit: boolean;
+  onEdit: () => void;
+  onToggle: () => Promise<void>;
+  onRemove: () => Promise<void>;
+  onReviewUpsert: (r: Review) => void;
+  onReviewRemove: (r: Review) => void;
+}) {
+  const { button, panel } = useSessionReview({
+    sessionId: paper.session_id,
+    memberId,
+    review,
+    canEdit,
+    onUpsert: onReviewUpsert,
+    onRemove: onReviewRemove,
+  });
+
+  return (
+    <li className="px-4 py-3 hover:bg-surface">
+      <div className="flex items-center gap-2 sm:gap-3">
+        <Link
+          href={`/members/${memberId}/papers/${paper.id}`}
+          className="min-w-0 flex-1"
+        >
+          <div className="truncate font-medium text-ink">{paper.title}</div>
+          <div className="truncate text-xs text-muted">
+            {paper.authors || "저자 미상"}
+            {paper.read_date ? ` · ${formatDate(paper.read_date)}` : ""}
+            {session?.title ? ` · ${session.title}` : ""}
+            {paper.pdf_url ? " · PDF" : " · 링크 없음"}
+          </div>
+        </Link>
+        <StatusBadge status={paper.status} />
+        {button}
+        {canEdit && (
+          <>
+            <button
+              onClick={onToggle}
+              title="상태 전환"
+              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+            >
+              {paper.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
+            </button>
+            <button
+              onClick={onEdit}
+              title="제목·저자·링크 편집"
+              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+            >
+              편집
+            </button>
+            <button
+              onClick={onRemove}
+              title="삭제"
+              className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
+            >
+              ✕
+            </button>
+          </>
+        )}
+      </div>
+
+      {panel}
+    </li>
   );
 }
 

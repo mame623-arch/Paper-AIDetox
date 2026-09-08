@@ -205,12 +205,15 @@ export default function PdfHighlighterView({
   paperId,
   pdfUrl,
   currentMemberId,
+  canEdit,
   notesOpen,
   onCloseNotes,
 }: {
   paperId: string;
   pdfUrl: string;
   currentMemberId: string | null;
+  /** 이 논문 기록의 주인일 때만 하이라이트를 남길 수 있다 */
+  canEdit: boolean;
   notesOpen: boolean;
   onCloseNotes: () => void;
 }) {
@@ -384,25 +387,25 @@ export default function PdfHighlighterView({
             <PdfHighlighter
               ref={highlighterRef}
               pdfDocument={pdfDocument}
-              enableAreaSelection={(event) => areaMode || event.altKey}
+              enableAreaSelection={(event) =>
+                canEdit && (areaMode || event.altKey)
+              }
               onScrollChange={resetHash}
               pdfScaleValue={scale}
               scrollRef={(scrollTo) => {
                 scrollToRef.current = scrollTo;
               }}
-              onSelectionFinished={(
-                position,
-                content,
-                hideTipAndSelection
-              ) => (
-                <NewHighlightTip
-                  onCancel={hideTipAndSelection}
-                  onConfirm={(note, color) => {
-                    addHighlight(position, content, note, color);
-                    hideTipAndSelection();
-                  }}
-                />
-              )}
+              onSelectionFinished={(position, content, hideTipAndSelection) =>
+                canEdit ? (
+                  <NewHighlightTip
+                    onCancel={hideTipAndSelection}
+                    onConfirm={(note, color) => {
+                      addHighlight(position, content, note, color);
+                      hideTipAndSelection();
+                    }}
+                  />
+                ) : null
+              }
               highlightTransform={(
                 highlight,
                 index,
@@ -457,17 +460,19 @@ export default function PdfHighlighterView({
 
         {/* 툴바 — 영역 선택 토글 + 확대/축소 */}
         <div className="absolute left-3 top-3 z-20 flex flex-wrap items-center gap-1.5">
-          <button
-            onClick={() => setAreaMode((v) => !v)}
-            title="켜면 드래그로 그림·표 영역을 네모로 하이라이트합니다"
-            className={`rounded-full px-3 py-1 text-[11px] font-semibold shadow transition ${
-              areaMode
-                ? "bg-accent text-white"
-                : "bg-white/90 text-muted hover:text-accent"
-            }`}
-          >
-            {areaMode ? "■ 영역 선택 켜짐" : "□ 영역 선택"}
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setAreaMode((v) => !v)}
+              title="켜면 드래그로 그림·표 영역을 네모로 하이라이트합니다"
+              className={`rounded-full px-3 py-1 text-[11px] font-semibold shadow transition ${
+                areaMode
+                  ? "bg-accent text-white"
+                  : "bg-white/90 text-muted hover:text-accent"
+              }`}
+            >
+              {areaMode ? "■ 영역 선택 켜짐" : "□ 영역 선택"}
+            </button>
+          )}
 
           <div className="flex items-center gap-0.5 rounded-full bg-white/90 px-1 py-0.5 shadow">
             <button
@@ -506,7 +511,9 @@ export default function PdfHighlighterView({
                 하이라이트 · 메모
               </div>
               <div className="text-[11px] leading-snug text-muted">
-                {areaMode
+                {!canEdit
+                  ? "다른 사람의 논문 기록이라 하이라이트는 보기만 됩니다."
+                  : areaMode
                   ? "영역 선택 켜짐 — 드래그로 네모를 그리세요. (문장 선택은 잠시 꺼짐)"
                   : "문장을 드래그하면 색과 메모를 남길 수 있어요. 남긴 메모는 아래에서 수정합니다."}
               </div>
@@ -533,9 +540,10 @@ export default function PdfHighlighterView({
                   const c = highlightColor(h.color);
                   const isArea = isAreaPosition(h.position);
                   const editing = editingId === h.id;
-                  // 내가 남긴 것만 수정·삭제. member_id 가 없는 예전 기록은
-                  // 주인이 없으므로 그대로 열어 둔다.
-                  const mine = !h.member_id || h.member_id === currentMemberId;
+                  // 내가 남긴 것만 수정·삭제. 작성자가 없는 예전 기록은
+                  // 논문 기록의 주인에게만 열어 둔다.
+                  const mine =
+                    h.member_id === currentMemberId || (!h.member_id && canEdit);
                   return (
                     <li key={h.id} className="group px-4 py-3 hover:bg-[#faf9f8]">
                       <button

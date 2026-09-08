@@ -74,6 +74,10 @@ export default function PaperPage() {
     );
   }
 
+  // 남의 논문 기록에는 하이라이트·메모를 남길 수 없다(멤버 페이지와 같은 규칙).
+  // added_by 가 없는 예전 기록은 주인이 없으므로 그대로 열어 둔다.
+  const canEdit = !paper.added_by || currentMemberId === paper.added_by;
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col md:h-screen">
       {/* 논문 헤더 */}
@@ -119,12 +123,17 @@ export default function PaperPage() {
         )}
       </div>
 
-      {!currentMemberId && (
+      {!currentMemberId ? (
         <div className="border-b border-[#f0e2b8] bg-[#fff8e6] px-4 py-1.5 text-[12px] text-[#8a6d2f] md:px-6">
           💡 왼쪽 사이드바에서 <b>내 이름</b>을 선택하면 하이라이트에 작성자가
           기록됩니다.
         </div>
-      )}
+      ) : !canEdit ? (
+        <div className="border-b border-line bg-surface px-4 py-1.5 text-[12px] text-muted md:px-6">
+          👀 {owner ? `${owner.name} 님의` : "다른 사람의"} 논문 기록입니다. 하이라이트·메모는
+          남길 수 없고 보기만 됩니다.
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1">
         {paper.pdf_url ? (
@@ -132,6 +141,7 @@ export default function PaperPage() {
             paperId={paper.id}
             pdfUrl={paper.pdf_url}
             currentMemberId={currentMemberId}
+            canEdit={canEdit}
             notesOpen={notesOpen}
             onCloseNotes={() => setNotesOpen(false)}
           />

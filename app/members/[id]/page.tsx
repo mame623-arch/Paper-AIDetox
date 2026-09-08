@@ -3,18 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import type { Member, Paper, PaperStatus, Session } from "@/lib/types";
+import type { Member, Paper, PaperStatus, Review, Session } from "@/lib/types";
 import {
   createPaper,
   deletePaper,
   fetchMember,
   fetchPapersByMember,
+  fetchReviewsByMember,
   fetchSessions,
   today,
   updatePaper,
   updatePaperStatus,
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { useCurrentMemberId } from "@/lib/currentUser";
 import { Avatar, Card, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
 
 export default function MemberPage() {
@@ -24,16 +26,26 @@ export default function MemberPage() {
   const [member, setMember] = useState<Member | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  // 한줄평은 차시별로 쓰므로 session_id 로 찾는다. 논문은 자기 차시의 한줄평을 보여준다.
+  const [reviewBySession, setReviewBySession] = useState<Map<string, Review>>(
+    new Map()
+  );
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // 이 페이지의 기록을 편집할 수 있는 사람 = 본인뿐 (사이드바에서 고른 "나")
+  const [currentMemberId] = useCurrentMemberId();
+  const canEdit = currentMemberId === memberId;
+
   const reload = async () => {
-    const [m, ps] = await Promise.all([
+    const [m, ps, rs] = await Promise.all([
       fetchMember(memberId),
       fetchPapersByMember(memberId),
+      fetchReviewsByMember(memberId),
     ]);
     setMember(m);
     setPapers(ps);
+    setReviewBySession(new Map(rs.map((r) => [r.session_id, r])));
   };
 
   useEffect(() => {
@@ -46,6 +58,11 @@ export default function MemberPage() {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId]);
+
+  const sessionById = useMemo(
+    () => new Map(sessions.map((s) => [s.id, s])),
+    [sessions]
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -92,11 +109,9 @@ export default function MemberPage() {
         </div>
       </div>
 
-      <AddPaperForm
-        memberId={memberId}
-        sessions={sessions}
-        onAdded={reload}
-      />
+      {canEdit && (
+        <AddPaperForm memberId={memberId} sessions={sessions} onAdded={reload} />
+      )}
 
       {/* 검색 */}
       <div className="mt-6 flex max-w-sm items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5">
@@ -104,7 +119,7 @@ export default function MemberPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="내 논문 검색 (제목·저자)"
+          placeholder={canEdit ? "내 논문 검색 (제목·저자)" : "논문 검색 (제목·저자)"}
           className="w-full bg-transparent text-sm outline-none placeholder:text-faint"
         />
       </div>
@@ -113,6 +128,9 @@ export default function MemberPage() {
       <PaperList
         memberId={memberId}
         papers={read}
+        reviewBySession={reviewBySession}
+        sessionById={sessionById}
+        canEdit={canEdit}
         emptyText={query ? "검색 결과가 없습니다." : "아직 읽은 논문이 없습니다."}
         onChanged={reload}
       />
@@ -121,7 +139,16 @@ export default function MemberPage() {
       <PaperList
         memberId={memberId}
         papers={toread}
-        emptyText={query ? "검색 결과가 없습니다." : "읽을 논문을 추가해 보세요."}
+        reviewBySession={reviewBySession}
+        sessionById={sessionById}
+        canEdit={canEdit}
+        emptyText={
+          query
+            ? "검색 결과가 없습니다."
+            : canEdit
+            ? "읽을 논문을 추가해 보세요."
+            : "읽을 논문이 없습니다."
+        }
         onChanged={reload}
       />
     </div>
@@ -293,11 +320,19 @@ function AddPaperForm({
 function PaperList({
   memberId,
   papers,
+  reviewBySession,
+  sessionById,
+  canEdit,
   emptyText,
   onChanged,
 }: {
   memberId: string;
   papers: Paper[];
+  /** 차시 id → 그 차시에 이 멤버가 쓴 한줄평 */
+  reviewBySession: Map<string, Review>;
+  sessionById: Map<string, Session>;
+  /** 본인 페이지일 때만 추가·편집·삭제 버튼을 노출한다 */
+  canEdit: boolean;
   emptyText: string;
   onChanged: () => Promise<void>;
 }) {
@@ -326,8 +361,15 @@ function PaperList({
         <p className="p-5 text-sm text-muted">{emptyText}</p>
       ) : (
         <ul className="divide-y divide-line">
-          {papers.map((p) =>
-            editingId === p.id ? (
+          {papers.map((p) => {
+            const review = p.session_id
+              ? reviewBySession.get(p.session_id) ?? null
+              : null;
+            const session = p.session_id
+              ? sessionById.get(p.session_id) ?? null
+              : null;
+
+            return editingId === p.id ? (
               <li key={p.id} className="px-4 py-3">
                 <EditPaperForm
                   paper={p}
@@ -339,43 +381,67 @@ function PaperList({
                 />
               </li>
             ) : (
-              <li
-                key={p.id}
-                className="flex items-center gap-2 px-4 py-3 hover:bg-surface sm:gap-3"
-              >
-                <Link href={`/members/${memberId}/papers/${p.id}`} className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-ink">{p.title}</div>
-                  <div className="truncate text-xs text-muted">
-                    {p.authors || "저자 미상"}
-                    {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
-                    {p.pdf_url ? " · PDF" : " · 링크 없음"}
+              <li key={p.id} className="px-4 py-3 hover:bg-surface">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Link
+                    href={`/members/${memberId}/papers/${p.id}`}
+                    className="min-w-0 flex-1"
+                  >
+                    <div className="truncate font-medium text-ink">{p.title}</div>
+                    <div className="truncate text-xs text-muted">
+                      {p.authors || "저자 미상"}
+                      {p.read_date ? ` · ${formatDate(p.read_date)}` : ""}
+                      {p.pdf_url ? " · PDF" : " · 링크 없음"}
+                    </div>
+                  </Link>
+                  <StatusBadge status={p.status} />
+                  {canEdit && (
+                    <>
+                      <button
+                        onClick={() => toggle(p)}
+                        title="상태 전환"
+                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+                      >
+                        {p.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
+                      </button>
+                      <button
+                        onClick={() => setEditingId(p.id)}
+                        title="제목·저자·링크 편집"
+                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
+                      >
+                        편집
+                      </button>
+                      <button
+                        onClick={() => remove(p)}
+                        title="삭제"
+                        className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* 그 차시에 남긴 한줄평 — 한줄평은 논문이 아니라 차시 단위라
+                    같은 차시의 논문에는 같은 글이 붙는다. */}
+                {review && (
+                  <div className="mt-2 rounded-lg border border-line bg-surface px-3 py-2">
+                    <div className="text-[0.68rem] font-semibold text-faint">
+                      한줄평
+                      {session
+                        ? ` · ${formatDate(session.date)}${
+                            session.title ? ` ${session.title}` : ""
+                          }`
+                        : ""}
+                    </div>
+                    <p className="mt-0.5 whitespace-pre-wrap text-sm text-body">
+                      {review.text}
+                    </p>
                   </div>
-                </Link>
-                <StatusBadge status={p.status} />
-                <button
-                  onClick={() => toggle(p)}
-                  title="상태 전환"
-                  className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
-                >
-                  {p.status === "read" ? "↩︎ 예정" : "✓ 읽음"}
-                </button>
-                <button
-                  onClick={() => setEditingId(p.id)}
-                  title="제목·저자·링크 편집"
-                  className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface2"
-                >
-                  편집
-                </button>
-                <button
-                  onClick={() => remove(p)}
-                  title="삭제"
-                  className="rounded-md px-2 py-1 text-xs text-faint hover:text-[#b4543f]"
-                >
-                  ✕
-                </button>
+                )}
               </li>
-            )
-          )}
+            );
+          })}
         </ul>
       )}
     </div>

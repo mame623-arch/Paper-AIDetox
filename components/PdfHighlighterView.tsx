@@ -533,6 +533,9 @@ export default function PdfHighlighterView({
                   const c = highlightColor(h.color);
                   const isArea = isAreaPosition(h.position);
                   const editing = editingId === h.id;
+                  // 내가 남긴 것만 수정·삭제. member_id 가 없는 예전 기록은
+                  // 주인이 없으므로 그대로 열어 둔다.
+                  const mine = !h.member_id || h.member_id === currentMemberId;
                   return (
                     <li key={h.id} className="group px-4 py-3 hover:bg-[#faf9f8]">
                       <button
@@ -565,7 +568,7 @@ export default function PdfHighlighterView({
                         )}
                       </button>
 
-                      {editing ? (
+                      {editing && mine ? (
                         <div className="mt-2">
                           <ColorSwatches
                             value={draftColor}
@@ -602,34 +605,52 @@ export default function PdfHighlighterView({
                         </div>
                       ) : (
                         <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <button
-                            onClick={() => startEdit(h)}
-                            title="색·메모 수정"
-                            className="flex items-center gap-1.5 text-[11px] text-muted hover:text-ink"
-                          >
-                            <span
-                              className="inline-block h-3 w-3 rounded-full"
-                              style={{
-                                background: c.fill,
-                                border: `1.5px solid ${c.dot}`,
-                              }}
-                            />
-                            {c.label}
-                          </button>
-                          <div className="flex items-center gap-2 transition md:opacity-0 md:group-hover:opacity-100">
+                          {mine ? (
                             <button
                               onClick={() => startEdit(h)}
-                              className="text-[11px] text-muted hover:text-accent"
+                              title="색·메모 수정"
+                              className="flex items-center gap-1.5 text-[11px] text-muted hover:text-ink"
                             >
-                              {h.note ? "메모 수정" : "메모 추가"}
+                              <span
+                                className="inline-block h-3 w-3 rounded-full"
+                                style={{
+                                  background: c.fill,
+                                  border: `1.5px solid ${c.dot}`,
+                                }}
+                              />
+                              {c.label}
                             </button>
-                            <button
-                              onClick={() => removeHighlight(h.id)}
-                              className="text-[11px] text-muted hover:text-red-600"
+                          ) : (
+                            <span
+                              title="다른 사람이 남긴 하이라이트입니다"
+                              className="flex items-center gap-1.5 text-[11px] text-faint"
                             >
-                              삭제
-                            </button>
-                          </div>
+                              <span
+                                className="inline-block h-3 w-3 rounded-full"
+                                style={{
+                                  background: c.fill,
+                                  border: `1.5px solid ${c.dot}`,
+                                }}
+                              />
+                              {c.label}
+                            </span>
+                          )}
+                          {mine && (
+                            <div className="flex items-center gap-2 transition md:opacity-0 md:group-hover:opacity-100">
+                              <button
+                                onClick={() => startEdit(h)}
+                                className="text-[11px] text-muted hover:text-accent"
+                              >
+                                {h.note ? "메모 수정" : "메모 추가"}
+                              </button>
+                              <button
+                                onClick={() => removeHighlight(h.id)}
+                                className="text-[11px] text-muted hover:text-red-600"
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </li>

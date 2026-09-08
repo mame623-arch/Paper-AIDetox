@@ -353,3 +353,52 @@ export async function deleteReview(id: string): Promise<void> {
   const { error } = await supabase.from("reviews").delete().eq("id", id);
   if (error) throw error;
 }
+
+// ---------- 멤버 기준 조회 ----------
+/** 그 사람이 쓴 한줄평 전체 (차시별로 최대 1개) */
+export async function fetchReviewsByMember(memberId: string): Promise<Review[]> {
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("*")
+    .eq("member_id", memberId);
+  if (error) throw error;
+  return (data ?? []) as Review[];
+}
+
+/**
+ * 그 사람이 참여한 차시 id 집합.
+ * 참여 = 그 차시에 논문을 등록했거나(자동), 출석 체크를 했거나(수동).
+ * 세션마다 조회하지 않도록 두 방향을 각각 한 번씩만 읽는다.
+ * 출석 테이블은 아직 없을 수 있으므로, 실패하면 논문 기준만으로 계산한다.
+ */
+export async function fetchMemberSessionIds(
+  memberId: string
+): Promise<Set<string>> {
+  const [papersRes, attRes] = await Promise.all([
+    supabase
+      .from("papers")
+      .select("session_id")
+      .eq("added_by", memberId)
+      .not("session_id", "is", null),
+    supabase
+      .from("session_attendees")
+      .select("session_id")
+      .eq("member_id", memberId),
+  ]);
+  if (papersRes.error) throw papersRes.error;
+  if (attRes.error) {
+    console.warn(
+      "출석 정보를 불러오지 못했습니다(테이블 미생성?)",
+      attRes.error.message
+    );
+  }
+
+  const ids = new Set<string>();
+  for (const r of (papersRes.data ?? []) as { session_id: string | null }[]) {
+    if (r.session_id) ids.add(r.session_id);
+  }
+  for (const r of (attRes.data ?? []) as { session_id: string }[]) {
+    ids.add(r.session_id);
+  }
+  return ids;
+}

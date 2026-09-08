@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PdfHighlighter,
   PdfLoader,
@@ -218,7 +218,11 @@ export default function PdfHighlighterView({
   onCloseNotes: () => void;
 }) {
   const [dbHighlights, setDbHighlights] = useState<DBHighlight[]>([]);
+  // 하이라이트를 다 받은 뒤에 뷰어를 붙인다 — 아래 highlights 주석 참고.
+  const [highlightsLoaded, setHighlightsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string>("");
+  // 뷰어를 통째로 다시 붙이기 위한 키 — 로딩 실패 시 "다시 시도" 에 쓴다.
+  const [reloadKey, setReloadKey] = useState(0);
   // 켜면 드래그가 '영역 선택'이 된다. (끄면 평소처럼 문장 드래그)
   const [areaMode, setAreaMode] = useState(false);
   // 메모 수정 — 열려 있는 하이라이트 id 와 임시 입력값
@@ -237,12 +241,14 @@ export default function PdfHighlighterView({
   const proxied = `${origin}/api/pdf?url=${encodeURIComponent(pdfUrl)}`;
 
   useEffect(() => {
+    setHighlightsLoaded(false);
     fetchHighlights(paperId)
       .then(setDbHighlights)
       .catch((e) => {
         console.error(e);
         setLoadError("하이라이트를 불러오지 못했습니다.");
-      });
+      })
+      .finally(() => setHighlightsLoaded(true));
   }, [paperId]);
 
   // 현재 배율(%)을 뷰어에서 받아 온다. 창 크기가 바뀌면 page-width 배율도 바뀌므로
@@ -298,7 +304,21 @@ export default function PdfHighlighterView({
     applyScale(next.toFixed(2));
   };
 
-  const highlights = dbHighlights.map(toIHighlight);
+  /**
+   * PdfHighlighter 는 highlights 를 **참조로** 비교해서(prevProps.highlights !==
+   * this.props.highlights) 다르면 componentDidUpdate 에서 곧바로 this.viewer 를 쓴다.
+   * 그런데 라이브러리의 init() 은 async 라(내부에서 pdf_viewer 를 동적 import)
+   * viewer 가 아직 없을 수 있고, 그러면
+   *   TypeError: Cannot read properties of undefined (reading 'getPageView')
+   * 가 나면서 PdfLoader 의 에러 경계가 "PDF를 불러오지 못했습니다"를 띄운다.
+   *
+   * 매 렌더마다 새 배열을 만들면 확대/축소·메모 입력 같은 사소한 리렌더까지
+   * 전부 그 경로를 타므로, dbHighlights 가 실제로 바뀔 때만 새 배열을 만든다.
+   */
+  const highlights = useMemo(
+    () => dbHighlights.map(toIHighlight),
+    [dbHighlights]
+  );
 
   const addHighlight = async (
     position: IHighlight["position"],
@@ -370,6 +390,7 @@ export default function PdfHighlighterView({
       {/* PDF + highlights */}
       <div className="relative min-w-0 flex-1 bg-[#525659]">
         <PdfLoader
+          key={reloadKey}
           url={proxied}
           workerSrc={WORKER_SRC}
           beforeLoad={
@@ -378,84 +399,104 @@ export default function PdfHighlighterView({
             </div>
           }
           errorMessage={
-            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-white">
-              PDF를 불러오지 못했습니다. 링크가 올바른지 확인하세요.
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white">
+              <p>
+                PDF를 불러오지 못했습니다.
+                <br />
+                <span className="text-white/70">
+                  일시적인 문제일 수 있습니다. 다시 시도해도 같으면 링크를 확인해 주세요.
+                </span>
+              </p>
+              <button
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="rounded-md bg-white/90 px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-white"
+              >
+                다시 시도
+              </button>
             </div>
           }
         >
-          {(pdfDocument) => (
-            <PdfHighlighter
-              ref={highlighterRef}
-              pdfDocument={pdfDocument}
-              enableAreaSelection={(event) =>
-                canEdit && (areaMode || event.altKey)
-              }
-              onScrollChange={resetHash}
-              pdfScaleValue={scale}
-              scrollRef={(scrollTo) => {
-                scrollToRef.current = scrollTo;
-              }}
-              onSelectionFinished={(position, content, hideTipAndSelection) =>
-                canEdit ? (
-                  <NewHighlightTip
-                    onCancel={hideTipAndSelection}
-                    onConfirm={(note, color) => {
-                      addHighlight(position, content, note, color);
-                      hideTipAndSelection();
-                    }}
-                  />
-                ) : null
-              }
-              highlightTransform={(
-                highlight,
-                index,
-                setTip,
-                hideTip,
-                _viewportToScaled,
-                _screenshot,
-                isScrolledTo
-              ) => {
-                const db = dbHighlights.find((h) => h.id === highlight.id);
-                const color = highlightColor(db?.color);
-                // 저장된 원본 position 으로 판별한다.
-                // (페이지별로 잘린 position 은 rects 가 비어 보일 수 있다)
-                const isArea = isAreaPosition(db?.position ?? highlight.position);
+          {(pdfDocument) =>
+            // 하이라이트가 도착하기 전에 붙이면 첫 도착이 곧 prop 변경이 되어
+            // 위에서 말한 경쟁이 그대로 일어난다. 다 받은 뒤에 붙인다.
+            !highlightsLoaded ? (
+              <div className="flex h-full items-center justify-center text-sm text-white">
+                하이라이트 불러오는 중…
+              </div>
+            ) : (
+              <PdfHighlighter
+                ref={highlighterRef}
+                pdfDocument={pdfDocument}
+                enableAreaSelection={(event) =>
+                  canEdit && (areaMode || event.altKey)
+                }
+                onScrollChange={resetHash}
+                pdfScaleValue={scale}
+                scrollRef={(scrollTo) => {
+                  scrollToRef.current = scrollTo;
+                }}
+                onSelectionFinished={(position, content, hideTipAndSelection) =>
+                  canEdit ? (
+                    <NewHighlightTip
+                      onCancel={hideTipAndSelection}
+                      onConfirm={(note, color) => {
+                        addHighlight(position, content, note, color);
+                        hideTipAndSelection();
+                      }}
+                    />
+                  ) : null
+                }
+                highlightTransform={(
+                  highlight,
+                  index,
+                  setTip,
+                  hideTip,
+                  _viewportToScaled,
+                  _screenshot,
+                  isScrolledTo
+                ) => {
+                  const db = dbHighlights.find((h) => h.id === highlight.id);
+                  const color = highlightColor(db?.color);
+                  // 저장된 원본 position 으로 판별한다.
+                  // (페이지별로 잘린 position 은 rects 가 비어 보일 수 있다)
+                  const isArea = isAreaPosition(db?.position ?? highlight.position);
 
-                const box = isArea ? (
-                  <AreaHighlightBox
-                    rect={highlight.position.boundingRect}
-                    color={color}
-                    isScrolledTo={isScrolledTo}
-                  />
-                ) : (
-                  <TextHighlightBox
-                    rects={highlight.position.rects}
-                    color={color}
-                    isScrolledTo={isScrolledTo}
-                  />
-                );
+                  const box = isArea ? (
+                    <AreaHighlightBox
+                      rect={highlight.position.boundingRect}
+                      color={color}
+                      isScrolledTo={isScrolledTo}
+                    />
+                  ) : (
+                    <TextHighlightBox
+                      rects={highlight.position.rects}
+                      color={color}
+                      isScrolledTo={isScrolledTo}
+                    />
+                  );
 
-                const note = highlight.comment?.text?.trim();
-                if (!note) return <div key={index}>{box}</div>;
+                  const note = highlight.comment?.text?.trim();
+                  if (!note) return <div key={index}>{box}</div>;
 
-                return (
-                  <Popup
-                    key={index}
-                    popupContent={
-                      <div className="max-w-xs whitespace-pre-wrap rounded-lg bg-[#2b2b2b] px-3 py-2 text-xs text-white shadow-lg">
-                        {note}
-                      </div>
-                    }
-                    onMouseOver={(p) => setTip(highlight, () => p)}
-                    onMouseOut={hideTip}
-                  >
-                    {box}
-                  </Popup>
-                );
-              }}
-              highlights={highlights}
-            />
-          )}
+                  return (
+                    <Popup
+                      key={index}
+                      popupContent={
+                        <div className="max-w-xs whitespace-pre-wrap rounded-lg bg-[#2b2b2b] px-3 py-2 text-xs text-white shadow-lg">
+                          {note}
+                        </div>
+                      }
+                      onMouseOver={(p) => setTip(highlight, () => p)}
+                      onMouseOut={hideTip}
+                    >
+                      {box}
+                    </Popup>
+                  );
+                }}
+                highlights={highlights}
+              />
+            )
+          }
         </PdfLoader>
 
         {/* 툴바 — 영역 선택 토글 + 확대/축소 */}

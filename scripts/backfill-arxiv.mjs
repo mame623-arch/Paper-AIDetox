@@ -35,7 +35,18 @@ const res = await fetch(
   `${URL_}/rest/v1/papers?select=id,title,pdf_url,category,published_year&pdf_url=neq.`,
   { headers }
 );
+// res.ok 를 안 보면 401/404 응답도 그냥 json() 을 타서, papers 가 에러
+// 객체가 된 채로 아래 filter 에서 알아볼 수 없는 에러로 죽는다. 쓰기 전에
+// 죽는 건 같지만, 운영 DB 를 건드리기 직전인 사람에게는 원인을 알려줘야 한다.
+if (!res.ok) {
+  console.error(`papers 조회 실패: HTTP ${res.status} ${await res.text()}`);
+  process.exit(1);
+}
 const papers = await res.json();
+if (!Array.isArray(papers)) {
+  console.error("papers 응답이 배열이 아닙니다:", papers);
+  process.exit(1);
+}
 
 // 필드마다 따로 판단한다. "둘 다 비었을 때만" 으로 하면 부분적으로 빈 행이
 // 영영 안 채워진다.

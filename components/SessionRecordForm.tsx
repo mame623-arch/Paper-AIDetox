@@ -153,28 +153,45 @@ export default function SessionRecordForm({
     setSaving(true);
     setError("");
     try {
-      await createPaper({
-        title: title.trim(),
-        authors: authors.trim(),
-        pdf_url: url.trim(),
-        added_by: currentMemberId,
-        status,
-        read_date: status === "read" ? session.date : null,
-        session_id: session.id,
-        category,
-        published_year: year,
-      });
       // 참석 판정은 이미 "논문 등록 = 참석" 이라 따로 쓰지 않는다.
       // 예외: 이미 불참을 선언해 뒀다면 absent 가 우선해 그대로 불참자로 남으므로,
-      // 이때만 이어서 present 로 덮어써 불참 표시를 지운다.
+      // 이때만 present 로 덮어써 불참 표시를 지운다.
+      //
+      // 순서(컨트롤러 판단 — 브리핑의 순서를 뒤집었다): 멱등한 쓰기(setAttendance,
+      // upsert)를 먼저, 멱등하지 않은 쓰기(createPaper, insert)를 나중에 한다.
+      // createPaper 를 먼저 하면, 뒤이은 setAttendance 가 실패했을 때 논문은 이미
+      // 저장돼 있는데 "저장 실패"로 보이고, 재시도하면 논문이 중복 생성된다.
+      // 반대로 하면 setAttendance 가 실패해도 아직 아무것도 안 바뀐 상태이고,
+      // setAttendance 가 성공한 뒤 createPaper 만 실패하면 "참석(논문 없이)"이라는
+      // 이 도메인에서 정상적인 상태로 남아, 재시도해도 upsert 라 중복이 없다.
       if (myAttendance?.status === "absent") {
-        await setAttendance(session.id, currentMemberId, "present");
+        try {
+          await setAttendance(session.id, currentMemberId, "present");
+        } catch (err) {
+          console.error(err);
+          setError("참석 처리에 실패했습니다.");
+          return;
+        }
+      }
+      try {
+        await createPaper({
+          title: title.trim(),
+          authors: authors.trim(),
+          pdf_url: url.trim(),
+          added_by: currentMemberId,
+          status,
+          read_date: status === "read" ? session.date : null,
+          session_id: session.id,
+          category,
+          published_year: year,
+        });
+      } catch (err) {
+        console.error(err);
+        setError("논문 저장에 실패했습니다.");
+        return;
       }
       closeAll();
       await onDone();
-    } catch (err) {
-      console.error(err);
-      setError("저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }

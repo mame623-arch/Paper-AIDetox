@@ -203,6 +203,17 @@ export async function fetchPapersByMember(memberId: string): Promise<Paper[]> {
   return data as Paper[];
 }
 
+/** 그 차시에 등록된 논문 전체(등록자 무관). 보고서의 참석/불참 분류와 논문 목록에 쓴다. */
+export async function fetchPapersBySession(sessionId: string): Promise<Paper[]> {
+  const { data, error } = await supabase
+    .from("papers")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Paper[];
+}
+
 export async function fetchPaper(id: string): Promise<Paper | null> {
   const { data, error } = await supabase
     .from("papers")

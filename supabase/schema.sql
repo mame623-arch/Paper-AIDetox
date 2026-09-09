@@ -46,6 +46,9 @@ create table if not exists papers (
   published_year int,
   created_at timestamptz default now()
 );
+-- 기존(구버전)에서 올라오는 경우를 위한 컬럼 보강
+alter table papers add column if not exists category       text default '';
+alter table papers add column if not exists published_year int;
 
 -- 하이라이트 + 메모 (react-pdf-highlighter position JSON) -------
 --  color: 하이라이트 색(yellow/green/blue/pink/purple)
@@ -61,6 +64,8 @@ create table if not exists highlights (
   purpose    text default '',
   created_at timestamptz default now()
 );
+-- 기존(구버전)에서 올라오는 경우를 위한 컬럼 보강
+alter table highlights add column if not exists purpose text default '';
 
 -- 한줄평(소감) — 세션별·멤버별 한 번만 ---------------------------
 create table if not exists reviews (
@@ -86,6 +91,12 @@ create table if not exists session_attendees (
 );
 create unique index if not exists session_attendees_session_member_key
   on session_attendees(session_id, member_id);
+-- 기존(구버전)에서 올라오는 경우를 위한 컬럼 보강
+alter table session_attendees add column if not exists status text not null default 'present';
+alter table session_attendees add column if not exists reason text default '';
+alter table session_attendees drop constraint if exists session_attendees_status_check;
+alter table session_attendees add constraint session_attendees_status_check
+  check (status in ('present', 'absent'));
 
 create index if not exists idx_papers_added_by on papers(added_by);
 create index if not exists idx_papers_session  on papers(session_id);

@@ -6,7 +6,7 @@ import type { ArxivMeta } from "@/lib/arxiv";
 import { createPaper, setAttendance } from "@/lib/db";
 import { categoryLabel } from "@/lib/arxivCategories";
 import { useCurrentMemberId } from "@/lib/currentUser";
-import { Card } from "@/components/ui";
+import { Card, formatDate, weekday } from "@/components/ui";
 
 type Branch = "present" | "paper" | "absent";
 
@@ -255,14 +255,21 @@ export default function SessionRecordForm({
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        {/* 어느 차시에 쓰는 기록인지 — 홈에서는 "이번 차시" 가 다음 주 차시다 */}
+        <p className="text-sm text-muted">
+          <span className="font-medium text-ink">
+            {formatDate(session.date)} ({weekday(session.date)})
+          </span>{" "}
+          기록
+        </p>
         <p className="text-sm text-muted">
           내 현재 상태 · <span className="font-medium text-ink">{statusLine}</span>
         </p>
         <button
           type="button"
           onClick={closeAll}
-          className="text-xs text-muted hover:text-ink"
+          className="ml-auto text-xs text-muted hover:text-ink"
         >
           닫기
         </button>
@@ -327,7 +334,7 @@ export default function SessionRecordForm({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">제목</span>
+            <span className="mb-1 block text-xs font-medium text-muted">제목 *</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}

@@ -78,4 +78,27 @@ describe("parseArxivAtom", () => {
     </feed>`;
     expect(parseArxivAtom(err)).toBeNull();
   });
+
+  // arXiv 는 제목·저자에 XML 엔티티를 그대로 실어 보낸다. 풀지 않으면
+  // "Q&amp;A ..." 가 그대로 공용 DB 에 저장되고 보고서에도 그렇게 나온다.
+  it("이름 있는 엔티티를 문자로 되돌린다", () => {
+    const xml = `<feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Q&amp;A over &lt;Knowledge&gt; Graphs</title>
+        <author><name>Ada &quot;Byron&quot; Lovelace</name></author>
+      </entry>
+    </feed>`;
+    const meta = parseArxivAtom(xml);
+    expect(meta?.title).toBe("Q&A over <Knowledge> Graphs");
+    expect(meta?.authors).toBe('Ada "Byron" Lovelace');
+  });
+
+  it("숫자 참조(10진·16진)도 문자로 되돌린다", () => {
+    const xml = `<feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Schr&#246;dinger&#39;s Caf&#xE9;</title>
+      </entry>
+    </feed>`;
+    expect(parseArxivAtom(xml)?.title).toBe("Schr\u00f6dinger's Caf\u00e9");
+  });
 });

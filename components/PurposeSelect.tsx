@@ -56,9 +56,13 @@ export default function PurposeSelect({
       {custom && (
         <input
           value={isPreset(value) ? "" : value}
-          onChange={(e) => onChange(e.target.value)}
+          // 지우다 비면 value 만으로는 기타가 아니게 돼 입력칸이 닫힌다 —
+          // 편집 중에는 사용자가 고른 상태를 붙들어 둔다.
+          onChange={(e) => {
+            setCustomChosen(true);
+            onChange(e.target.value);
+          }}
           placeholder="용도 직접 입력"
-          autoFocus
           className={`w-32 rounded-md border border-line bg-bg px-2 py-0.5 ${text} outline-none focus:border-accent`}
         />
       )}

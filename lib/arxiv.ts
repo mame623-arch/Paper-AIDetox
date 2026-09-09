@@ -19,8 +19,9 @@ export interface ArxivMeta {
  * arxiv.org/pdf/<id> · /pdf/<id>v3 · /pdf/<id>.pdf · /pdf/<id>v3.pdf · /abs/<id>
  * 에서 확장자와 버전을 뗀 id 를 뽑는다. 확장자를 먼저 떼야 버전 제거가 걸린다.
  *
- * 옛 형식 id(math.GT/0309136 처럼 슬래시가 들어가는 것)는 받지 않는다 —
- * null 이 되어 손 입력으로 넘어간다.
+ * 옛 형식 id(math.GT/0309136 처럼 슬래시가 들어가는 것)는 문자 집합이 슬래시에서
+ * 멈춰 앞부분("math.GT")만 남는다. 그 id 로 물으면 arXiv 가 오류 entry 로 답하고
+ * (parseArxivAtom → null) 라우트가 422 를 돌려주므로, 결국 손 입력으로 넘어간다.
  */
 export function extractArxivId(url: string): string | null {
   const m = url.match(/arxiv\.org\/(?:pdf|abs)\/([^\s/?#]+)/i);
@@ -34,8 +35,38 @@ const textOf = (xml: string, tag: string): string | null => {
   return m ? m[1] : null;
 };
 
-/** 줄바꿈과 연속 공백을 한 칸으로 접는다. arXiv 제목은 여러 줄로 온다. */
-const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+/** 범위를 벗어난 숫자 참조는 그대로 둔다(String.fromCodePoint 가 던진다). */
+const codePoint = (n: number, original: string) => {
+  try {
+    return String.fromCodePoint(n);
+  } catch {
+    return original;
+  }
+};
+
+/**
+ * XML 엔티티를 원래 문자로 되돌린다. arXiv 는 제목·저자에 &amp; 같은 엔티티를
+ * 그대로 실어 보내는데, 풀지 않으면 "Q&amp;A over ..." 가 그대로 DB 에 저장되고
+ * 화면·보고서에도 그대로 나온다.
+ *
+ * &amp; 를 맨 나중에 푼다 — 먼저 풀면 "&amp;lt;" 처럼 이미 이스케이프된 문자열이
+ * 한 단계 더 풀려 "<" 가 된다.
+ */
+const decodeEntities = (s: string) =>
+  s
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (m, dec) => codePoint(Number(dec), m))
+    .replace(/&#x([0-9a-f]+);/gi, (m, hex) => codePoint(parseInt(hex, 16), m))
+    .replace(/&amp;/gi, "&");
+
+/**
+ * 줄바꿈과 연속 공백을 한 칸으로 접고 XML 엔티티를 푼다. arXiv 제목은 여러 줄로
+ * 온다. 엔티티를 먼저 풀어야 &#10; 같이 공백으로 풀리는 것도 함께 접힌다.
+ */
+const squash = (s: string) => decodeEntities(s).replace(/\s+/g, " ").trim();
 
 export function parseArxivAtom(xml: string): ArxivMeta | null {
   const entry = textOf(xml, "entry");

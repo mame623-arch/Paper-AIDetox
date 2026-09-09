@@ -159,7 +159,7 @@ export default function MemberPage() {
         canEdit={canEdit}
         onReviewUpsert={upsertReview}
         onReviewRemove={removeReview}
-        emptyText={query ? "검색 결과가 없습니다." : "읽을 논문을 추가해 보세요."}
+        emptyText={query ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
         onChanged={reload}
       />
     </div>
@@ -182,7 +182,7 @@ function PaperList({
   /** 차시 id → 그 차시에 이 멤버가 쓴 한줄평 */
   reviewBySession: Map<string, Review>;
   sessionById: Map<string, Session>;
-  /** 본인 페이지일 때만 추가·편집·삭제 버튼을 노출한다 */
+  /** 본인 페이지일 때만 상태 전환·편집·삭제 버튼을 노출한다 (논문 추가는 차시 쪽에서 한다) */
   canEdit: boolean;
   emptyText: string;
   onReviewUpsert: (r: Review) => void;

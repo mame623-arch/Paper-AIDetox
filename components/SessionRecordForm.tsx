@@ -70,11 +70,14 @@ export default function SessionRecordForm({
   };
 
   useEffect(() => {
+    // 링크가 바뀔 때마다(비우는 경우뿐 아니라 다른 링크로 바꾸는 경우도) 순번을
+    // 앞질러 무효화한다. 그러지 않으면 A 조회가 진행 중일 때 B로 바꿔도, B의
+    // 디바운스가 뜨기 전에 A가 먼저 응답하면 그 순번이 여전히 최신으로 보여
+    // A의 제목·저자가 그대로 반영되고, 그 값이 B의 pdf_url·분야와 잘못 짝지어진다.
+    reqRef.current += 1;
     const link = url.trim();
     if (!link) {
       // 링크를 비우면 이전 조회 결과(분야·연도)도 함께 비운다.
-      // 이미 날아간 요청이 있었다면 순번을 앞질러 무효화해, 늦게 도착해도 반영되지 않게 한다.
-      reqRef.current += 1;
       setCategory("");
       setYear(null);
       return;
@@ -92,6 +95,12 @@ export default function SessionRecordForm({
     setCategory("");
     setYear(null);
     setReason("");
+    setError("");
+  };
+
+  // 갈래를 고른다 — 다른 갈래의 실패 메시지가 남아 있지 않도록 함께 지운다.
+  const selectBranch = (b: Branch) => {
+    setBranch(b);
     setError("");
   };
 
@@ -138,11 +147,18 @@ export default function SessionRecordForm({
     setError("");
     try {
       await setAttendance(session.id, currentMemberId, "present");
-      closeAll();
-      await onDone();
     } catch (err) {
       console.error(err);
       setError("저장에 실패했습니다.");
+      setSaving(false);
+      return;
+    }
+    // 다시 읽기(onDone)는 저장과 별개다 — 실패해도 저장 실패로 보고하지 않는다.
+    closeAll();
+    try {
+      await onDone();
+    } catch (err) {
+      console.error(err);
     } finally {
       setSaving(false);
     }
@@ -150,48 +166,59 @@ export default function SessionRecordForm({
 
   const submitPaper = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!title.trim()) {
+      setError("제목을 입력하세요.");
+      return;
+    }
     setSaving(true);
     setError("");
-    try {
-      // 참석 판정은 이미 "논문 등록 = 참석" 이라 따로 쓰지 않는다.
-      // 예외: 이미 불참을 선언해 뒀다면 absent 가 우선해 그대로 불참자로 남으므로,
-      // 이때만 present 로 덮어써 불참 표시를 지운다.
-      //
-      // 순서(컨트롤러 판단 — 브리핑의 순서를 뒤집었다): 멱등한 쓰기(setAttendance,
-      // upsert)를 먼저, 멱등하지 않은 쓰기(createPaper, insert)를 나중에 한다.
-      // createPaper 를 먼저 하면, 뒤이은 setAttendance 가 실패했을 때 논문은 이미
-      // 저장돼 있는데 "저장 실패"로 보이고, 재시도하면 논문이 중복 생성된다.
-      // 반대로 하면 setAttendance 가 실패해도 아직 아무것도 안 바뀐 상태이고,
-      // setAttendance 가 성공한 뒤 createPaper 만 실패하면 "참석(논문 없이)"이라는
-      // 이 도메인에서 정상적인 상태로 남아, 재시도해도 upsert 라 중복이 없다.
-      if (myAttendance?.status === "absent") {
-        try {
-          await setAttendance(session.id, currentMemberId, "present");
-        } catch (err) {
-          console.error(err);
-          setError("참석 처리에 실패했습니다.");
-          return;
-        }
-      }
+
+    // 참석 판정은 이미 "논문 등록 = 참석" 이라 따로 쓰지 않는다.
+    // 예외: 이미 불참을 선언해 뒀다면 absent 가 우선해 그대로 불참자로 남으므로,
+    // 이때만 present 로 덮어써 불참 표시를 지운다.
+    //
+    // 순서(컨트롤러 판단 — 브리핑의 순서를 뒤집었다): 멱등한 쓰기(setAttendance,
+    // upsert)를 먼저, 멱등하지 않은 쓰기(createPaper, insert)를 나중에 한다.
+    // createPaper 를 먼저 하면, 뒤이은 setAttendance 가 실패했을 때 논문은 이미
+    // 저장돼 있는데 "저장 실패"로 보이고, 재시도하면 논문이 중복 생성된다.
+    // 반대로 하면 setAttendance 가 실패해도 아직 아무것도 안 바뀐 상태이고,
+    // setAttendance 가 성공한 뒤 createPaper 만 실패하면 "참석(논문 없이)"이라는
+    // 이 도메인에서 정상적인 상태로 남아, 재시도해도 upsert 라 중복이 없다.
+    if (myAttendance?.status === "absent") {
       try {
-        await createPaper({
-          title: title.trim(),
-          authors: authors.trim(),
-          pdf_url: url.trim(),
-          added_by: currentMemberId,
-          status,
-          read_date: status === "read" ? session.date : null,
-          session_id: session.id,
-          category,
-          published_year: year,
-        });
+        await setAttendance(session.id, currentMemberId, "present");
       } catch (err) {
         console.error(err);
-        setError("논문 저장에 실패했습니다.");
+        setError("참석 처리에 실패했습니다.");
+        setSaving(false);
         return;
       }
-      closeAll();
+    }
+    try {
+      await createPaper({
+        title: title.trim(),
+        authors: authors.trim(),
+        pdf_url: url.trim(),
+        added_by: currentMemberId,
+        status,
+        read_date: status === "read" ? session.date : null,
+        session_id: session.id,
+        category,
+        published_year: year,
+      });
+    } catch (err) {
+      console.error(err);
+      setError("논문 저장에 실패했습니다.");
+      setSaving(false);
+      return;
+    }
+
+    // 다시 읽기(onDone)는 저장과 별개다 — 실패해도 저장 실패로 보고하지 않는다.
+    closeAll();
+    try {
       await onDone();
+    } catch (err) {
+      console.error(err);
     } finally {
       setSaving(false);
     }
@@ -209,11 +236,18 @@ export default function SessionRecordForm({
     setError("");
     try {
       await setAttendance(session.id, currentMemberId, "absent", reason.trim());
-      closeAll();
-      await onDone();
     } catch (err) {
       console.error(err);
       setError("저장에 실패했습니다.");
+      setSaving(false);
+      return;
+    }
+    // 다시 읽기(onDone)는 저장과 별개다 — 실패해도 저장 실패로 보고하지 않는다.
+    closeAll();
+    try {
+      await onDone();
+    } catch (err) {
+      console.error(err);
     } finally {
       setSaving(false);
     }
@@ -235,13 +269,13 @@ export default function SessionRecordForm({
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
-        <BranchButton active={branch === "present"} onClick={() => setBranch("present")}>
+        <BranchButton active={branch === "present"} onClick={() => selectBranch("present")}>
           참석
         </BranchButton>
-        <BranchButton active={branch === "paper"} onClick={() => setBranch("paper")}>
+        <BranchButton active={branch === "paper"} onClick={() => selectBranch("paper")}>
           논문 등록
         </BranchButton>
-        <BranchButton active={branch === "absent"} onClick={() => setBranch("absent")}>
+        <BranchButton active={branch === "absent"} onClick={() => selectBranch("absent")}>
           불참
         </BranchButton>
       </div>

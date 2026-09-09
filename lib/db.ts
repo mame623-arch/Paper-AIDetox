@@ -130,15 +130,19 @@ export async function fetchAttendance(sessionId: string): Promise<Attendance[]> 
   return (data ?? []) as Attendance[];
 }
 
-export async function addAttendance(
+export async function setAttendance(
   sessionId: string,
-  memberId: string
+  memberId: string,
+  status: "present" | "absent",
+  reason = ""
 ): Promise<void> {
   const { error } = await supabase
     .from("session_attendees")
-    .insert({ session_id: sessionId, member_id: memberId });
-  // 23505 = 이미 체크됨(unique 위반) — 성공으로 취급
-  if (error && error.code !== "23505") throw error;
+    .upsert(
+      { session_id: sessionId, member_id: memberId, status, reason },
+      { onConflict: "session_id,member_id" }
+    );
+  if (error) throw error;
 }
 
 export async function removeAttendance(
@@ -217,6 +221,8 @@ export interface NewPaperInput {
   status: PaperStatus;
   read_date: string | null;
   session_id: string | null;
+  category: string;
+  published_year: number | null;
 }
 
 export async function createPaper(input: NewPaperInput): Promise<Paper> {
@@ -270,6 +276,37 @@ export async function fetchHighlights(paperId: string): Promise<Highlight[]> {
     .order("created_at", { ascending: true });
   if (error) throw error;
   return data as Highlight[];
+}
+
+/**
+ * 한 차시의 "수집한 문장" — 그 차시에 등록된 논문들의 하이라이트 중
+ * purpose 가 붙은 것만. 논문마다 따로 조회하지 않고 id 를 모아 한 번에 읽는다.
+ */
+export async function fetchSessionHighlights(
+  sessionId: string
+): Promise<Highlight[]> {
+  const { data: papers, error: pErr } = await supabase
+    .from("papers")
+    .select("id")
+    .eq("session_id", sessionId);
+  if (pErr) throw pErr;
+
+  const ids = (papers ?? []).map((p) => (p as { id: string }).id);
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("highlights")
+    .select("*")
+    .in("paper_id", ids)
+    .neq("purpose", "")
+    .order("created_at", { ascending: true });
+  if (error) {
+    // 마이그레이션 전이면 purpose 컬럼이 없다. fetchAttendance 와 같이
+    // 경고만 남기고 빈 목록으로 처리해 나머지 화면은 그대로 돌게 한다.
+    console.warn("수집 문장을 불러오지 못했습니다(마이그레이션 미실행?)", error.message);
+    return [];
+  }
+  return (data ?? []) as Highlight[];
 }
 
 export interface NewHighlightInput {

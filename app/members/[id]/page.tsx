@@ -218,6 +218,8 @@ function AddPaperForm({
         status,
         read_date: status === "read" ? session?.date ?? today() : null,
         session_id: sessionId || null,
+        category: "",
+        published_year: null,
       });
       reset();
       setOpen(false);

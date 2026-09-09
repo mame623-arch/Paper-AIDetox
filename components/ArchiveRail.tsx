@@ -134,7 +134,9 @@ function MonthlyChart({ data }: { data: ArchiveStats["monthly"] }) {
             </div>
             <span
               className={`text-[9px] text-faint ${
-                i % MONTH_LABEL_STEP === 0 ? "" : "invisible"
+                // 이번 달(마지막 칸)을 기준점으로 삼는다 — 0부터 세면 이번 달이
+                // 늘 라벨을 못 받는다.
+                (data.length - 1 - i) % MONTH_LABEL_STEP === 0 ? "" : "invisible"
               }`}
             >
               {label}

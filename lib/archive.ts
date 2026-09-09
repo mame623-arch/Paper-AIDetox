@@ -53,11 +53,11 @@ export function buildArchiveStats(
 
   // ── monthly ── 최근 12개월 창을 먼저 만들고 그 안에만 더한다.
   const counts = new Map<string, number>();
-  const window: string[] = [];
+  const months: string[] = [];
   for (let i = MONTHS - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const k = monthKey(d.getFullYear(), d.getMonth());
-    window.push(k);
+    months.push(k);
     counts.set(k, 0);
   }
   for (const h of highlights) {
@@ -67,7 +67,7 @@ export function buildArchiveStats(
     const k = p.read_date.slice(0, 7);
     if (counts.has(k)) counts.set(k, counts.get(k)! + 1);
   }
-  const monthly = window.map((month) => ({ month, highlights: counts.get(month)! }));
+  const monthly = months.map((month) => ({ month, highlights: counts.get(month)! }));
 
   // ── categories ── 논문 수
   const catCount = new Map<string, number>();

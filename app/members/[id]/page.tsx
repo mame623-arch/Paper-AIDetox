@@ -235,23 +235,27 @@ function MemberPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, page, totalPages]);
 
-  // 목록이 빈 까닭을 세 가지로 가른다: 검색어가 걸렀나 / 용도가 걸렀나 /
-  // 애초에 읽은 논문이 없나. 셋을 뭉뚱그리면 검색 중에도 "아직 읽은 논문이
-  // 없습니다" 가 떠서 검색어를 지울 생각을 못 하게 된다.
+  // 목록이 빈 까닭을 네 가지로 가른다: 검색어 자체가 걸렀나 / 검색어를 통과한
+  // 뒤 용도가 걸렀나 / 검색어 없이 용도만 걸렀나 / 애초에 읽은 논문이 없나.
+  // 뭉뚱그리면 검색 중에도 "아직 읽은 논문이 없습니다" 가 떠서 검색어를 지울
+  // 생각을 못 하게 되고, 검색+용도가 겹쳤을 때도 "이 용도로 수집한 문장이
+  // 없습니다"만 보이면 칩 숫자(전체 기준)와 어긋나 보인다.
   const readEmptyText =
     query.trim() && read.length === 0
       ? "검색 결과가 없습니다."
-      : activePurpose && read.length > 0
-        ? "이 용도로 수집한 문장이 없습니다."
-        : "아직 읽은 논문이 없습니다.";
+      : query.trim() && activePurpose
+        ? "검색 결과 중 이 용도로 수집한 문장이 없습니다."
+        : activePurpose && read.length > 0
+          ? "이 용도로 수집한 문장이 없습니다."
+          : "아직 읽은 논문이 없습니다.";
 
   if (loading) {
-    return <p className="mx-auto max-w-[900px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>;
+    return <p className="mx-auto max-w-[1100px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>;
   }
 
   if (!member) {
     return (
-      <div className="mx-auto max-w-[900px] px-5 py-7 md:px-10">
+      <div className="mx-auto max-w-[1100px] px-5 py-7 md:px-10">
         <p className="text-muted">멤버를 찾을 수 없습니다.</p>
         <Link href="/members" className="text-accent hover:underline">
           ← 멤버 목록
@@ -261,7 +265,7 @@ function MemberPageInner() {
   }
 
   return (
-    <div className="mx-auto max-w-[900px] px-5 py-7 md:px-10">
+    <div className="mx-auto max-w-[1100px] px-5 py-7 md:px-10">
       <Link href="/members" className="text-sm text-muted hover:text-ink">
         ← 멤버
       </Link>
@@ -304,7 +308,7 @@ function MemberPageInner() {
             </p>
           )}
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_286px] lg:items-start">
+          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_286px] xl:items-start">
             <div className="min-w-0">
               {/* 용도 칩. 수집한 문장이 없으면 `전체 0` 하나만 남으니 줄을 접는다. */}
               {showPurposeChips && (
@@ -367,7 +371,7 @@ function MemberPageInner() {
                 canEdit={canEdit}
                 onReviewUpsert={upsertReview}
                 onReviewRemove={removeReview}
-                emptyText={query ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
+                emptyText={query.trim() ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
                 onChanged={reload}
               />
             </div>
@@ -392,7 +396,7 @@ function MemberPageInner() {
 
 export default function MemberPage() {
   return (
-    <Suspense fallback={<p className="mx-auto max-w-[900px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>}>
+    <Suspense fallback={<p className="mx-auto max-w-[1100px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>}>
       <MemberPageInner />
     </Suspense>
   );
@@ -603,7 +607,7 @@ function PaperRow({
           className="min-w-0 flex-1"
         >
           <div className="truncate font-medium text-ink">{paper.title}</div>
-          <div className="text-xs text-muted">{meta.join(" · ")}</div>
+          <div className="truncate text-xs text-muted">{meta.join(" · ")}</div>
         </Link>
         <StatusBadge status={paper.status} />
         {button}

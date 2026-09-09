@@ -28,6 +28,12 @@ describe("bucketPurpose", () => {
     expect(bucketPurpose("발표자료용")).toBe("기타");
     expect(bucketPurpose("나중에 인용")).toBe("기타");
   });
+
+  // 오늘은 조회 단계(highlightsByPaper 등)에서 빈 문자열이 걸러져 여기까지
+  // 오지 않지만, 그 계약이 이 함수 안에 못 박혀 있어야 나중 호출자가 깨뜨리지 않는다.
+  it("빈 문자열도 기타로 묶는다", () => {
+    expect(bucketPurpose("")).toBe("기타");
+  });
 });
 
 describe("groupHighlightsByPaper", () => {
@@ -71,6 +77,11 @@ describe("buildArchiveStats — monthly", () => {
   it("12개월 창 밖의 문장은 빼고, 창은 그대로 12칸이다", () => {
     const r = buildArchiveStats([paper("p1", "2024-01-05")], [hl("a", "p1", "좋은 표현")], NOW);
     expect(r.monthly).toHaveLength(12);
+    expect(r.monthly.every((m) => m.highlights === 0)).toBe(true);
+  });
+
+  it("읽은 논문 밖의 문장은 monthly 에도 안 잡힌다", () => {
+    const r = buildArchiveStats([paper("p1", "2026-09-03")], [hl("a", "p9", "좋은 표현")], NOW);
     expect(r.monthly.every((m) => m.highlights === 0)).toBe(true);
   });
 });

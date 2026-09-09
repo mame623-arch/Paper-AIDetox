@@ -24,6 +24,7 @@ import {
   highlightColor,
   type HighlightColor,
 } from "@/lib/highlightColors";
+import PurposeSelect from "@/components/PurposeSelect";
 
 // react-pdf-highlighter가 쓰는 pdfjs(4.x)와 버전이 일치하는 워커를
 // 동일 출처(public/)에서 서빙한다. (scripts/copy-pdf-worker.mjs 로 복사)
@@ -158,18 +159,22 @@ function NewHighlightTip({
   onConfirm,
   onCancel,
 }: {
-  onConfirm: (note: string, color: string) => void;
+  onConfirm: (note: string, color: string, purpose: string) => void;
   onCancel: () => void;
 }) {
   const [note, setNote] = useState("");
   const [color, setColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
-  const save = () => onConfirm(note.trim(), color);
+  const [purpose, setPurpose] = useState("");
+  const save = () => onConfirm(note.trim(), color, purpose);
 
   return (
     <div className="w-[240px] rounded-lg border border-line bg-white p-2.5 shadow-[0_6px_20px_rgba(28,31,38,0.22)]">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[11px] font-semibold text-muted">색</span>
         <ColorSwatches value={color} onChange={setColor} />
+      </div>
+      <div className="mb-2">
+        <PurposeSelect value={purpose} onChange={setPurpose} size="sm" />
       </div>
       <textarea
         autoFocus
@@ -229,6 +234,7 @@ export default function PdfHighlighterView({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [draftColor, setDraftColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+  const [draftPurpose, setDraftPurpose] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   // 확대·축소 — pdf.js 가 이해하는 값("page-width" 또는 "1.25" 같은 배율 문자열)
   const [scale, setScale] = useState("page-width");
@@ -324,7 +330,8 @@ export default function PdfHighlighterView({
     position: IHighlight["position"],
     content: IHighlight["content"],
     note: string,
-    color: string
+    color: string,
+    purpose: string
   ) => {
     try {
       const saved = await createHighlight({
@@ -334,6 +341,7 @@ export default function PdfHighlighterView({
         position,
         note,
         color,
+        purpose,
       });
       setDbHighlights((prev) => [...prev, saved]);
     } catch (e) {
@@ -346,6 +354,7 @@ export default function PdfHighlighterView({
     setEditingId(h.id);
     setDraftNote(h.note ?? "");
     setDraftColor(h.color || DEFAULT_HIGHLIGHT_COLOR);
+    setDraftPurpose(h.purpose ?? "");
   };
 
   const cancelEdit = () => {
@@ -359,6 +368,7 @@ export default function PdfHighlighterView({
       const saved = await updateHighlight(id, {
         note: draftNote.trim(),
         color: draftColor,
+        purpose: draftPurpose,
       });
       setDbHighlights((prev) => prev.map((x) => (x.id === id ? saved : x)));
       cancelEdit();
@@ -439,8 +449,8 @@ export default function PdfHighlighterView({
                   canEdit ? (
                     <NewHighlightTip
                       onCancel={hideTipAndSelection}
-                      onConfirm={(note, color) => {
-                        addHighlight(position, content, note, color);
+                      onConfirm={(note, color, purpose) => {
+                        addHighlight(position, content, note, color, purpose);
                         hideTipAndSelection();
                       }}
                     />
@@ -624,6 +634,14 @@ export default function PdfHighlighterView({
                             size={18}
                             onChange={setDraftColor}
                           />
+                          <div className="mt-1.5">
+                            <PurposeSelect
+                              key={h.id}
+                              value={draftPurpose}
+                              onChange={setDraftPurpose}
+                              size="sm"
+                            />
+                          </div>
                           <textarea
                             autoFocus
                             rows={3}
@@ -654,36 +672,43 @@ export default function PdfHighlighterView({
                         </div>
                       ) : (
                         <div className="mt-1.5 flex items-center justify-between gap-2">
-                          {mine ? (
-                            <button
-                              onClick={() => startEdit(h)}
-                              title="색·메모 수정"
-                              className="flex items-center gap-1.5 text-[11px] text-muted hover:text-ink"
-                            >
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            {mine ? (
+                              <button
+                                onClick={() => startEdit(h)}
+                                title="색·메모 수정"
+                                className="flex items-center gap-1.5 text-[11px] text-muted hover:text-ink"
+                              >
+                                <span
+                                  className="inline-block h-3 w-3 rounded-full"
+                                  style={{
+                                    background: c.fill,
+                                    border: `1.5px solid ${c.dot}`,
+                                  }}
+                                />
+                                {c.label}
+                              </button>
+                            ) : (
                               <span
-                                className="inline-block h-3 w-3 rounded-full"
-                                style={{
-                                  background: c.fill,
-                                  border: `1.5px solid ${c.dot}`,
-                                }}
-                              />
-                              {c.label}
-                            </button>
-                          ) : (
-                            <span
-                              title="다른 사람이 남긴 하이라이트입니다"
-                              className="flex items-center gap-1.5 text-[11px] text-faint"
-                            >
-                              <span
-                                className="inline-block h-3 w-3 rounded-full"
-                                style={{
-                                  background: c.fill,
-                                  border: `1.5px solid ${c.dot}`,
-                                }}
-                              />
-                              {c.label}
-                            </span>
-                          )}
+                                title="다른 사람이 남긴 하이라이트입니다"
+                                className="flex items-center gap-1.5 text-[11px] text-faint"
+                              >
+                                <span
+                                  className="inline-block h-3 w-3 rounded-full"
+                                  style={{
+                                    background: c.fill,
+                                    border: `1.5px solid ${c.dot}`,
+                                  }}
+                                />
+                                {c.label}
+                              </span>
+                            )}
+                            {h.purpose && (
+                              <span className="rounded-full bg-accentsoft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                                {h.purpose}
+                              </span>
+                            )}
+                          </div>
                           {mine && (
                             <div className="flex items-center gap-2 transition md:opacity-0 md:group-hover:opacity-100">
                               <button

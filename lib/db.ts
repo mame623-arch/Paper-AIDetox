@@ -130,15 +130,19 @@ export async function fetchAttendance(sessionId: string): Promise<Attendance[]> 
   return (data ?? []) as Attendance[];
 }
 
-export async function addAttendance(
+export async function setAttendance(
   sessionId: string,
-  memberId: string
+  memberId: string,
+  status: "present" | "absent",
+  reason = ""
 ): Promise<void> {
   const { error } = await supabase
     .from("session_attendees")
-    .insert({ session_id: sessionId, member_id: memberId });
-  // 23505 = 이미 체크됨(unique 위반) — 성공으로 취급
-  if (error && error.code !== "23505") throw error;
+    .upsert(
+      { session_id: sessionId, member_id: memberId, status, reason },
+      { onConflict: "session_id,member_id" }
+    );
+  if (error) throw error;
 }
 
 export async function removeAttendance(
@@ -155,7 +159,9 @@ export async function removeAttendance(
 
 /**
  * "누가 참석해서 어떤 논문을 다뤘는지" 뷰.
- * 참석 = 그 세션에 논문을 등록했거나(자동), 출석 체크를 했거나(수동).
+ * 참석 = (그 세션에 논문을 등록했거나(자동) present 로 체크했거나(수동)) − absent 선언.
+ * absent 가 우선한다 — 논문을 올려 뒀어도 불참을 선언했으면 참석자가 아니다
+ * (lib/report.ts 의 classifyAttendance 와 같은 규칙).
  */
 export async function fetchSessionReadings(
   sessionId: string,
@@ -175,14 +181,23 @@ export async function fetchSessionReadings(
     byMember.set(p.added_by, list);
   }
 
-  const checked = new Set(attendance.map((a) => a.member_id));
   const memberById = new Map(members.map((m) => [m.id, m]));
 
-  return [...new Set([...byMember.keys(), ...checked])]
+  // status 를 본다. 행이 있어도 absent 는 참석이 아니고, 논문을 올렸어도
+  // absent 가 우선한다 (lib/report.ts 의 classifyAttendance 와 같은 규칙).
+  const present = new Set(
+    attendance.filter((a) => a.status !== "absent").map((a) => a.member_id)
+  );
+  const absent = new Set(
+    attendance.filter((a) => a.status === "absent").map((a) => a.member_id)
+  );
+
+  return [...new Set([...byMember.keys(), ...present])]
+    .filter((id) => !absent.has(id))
     .map((memberId) => ({
       member: memberById.get(memberId)!,
       papers: byMember.get(memberId) ?? [],
-      attended: checked.has(memberId),
+      attended: present.has(memberId),
     }))
     .filter((r) => r.member)
     .sort((a, b) => a.member.sort - b.member.sort);
@@ -197,6 +212,17 @@ export async function fetchPapersByMember(memberId: string): Promise<Paper[]> {
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data as Paper[];
+}
+
+/** 그 차시에 등록된 논문 전체(등록자 무관). 보고서의 참석/불참 분류와 논문 목록에 쓴다. */
+export async function fetchPapersBySession(sessionId: string): Promise<Paper[]> {
+  const { data, error } = await supabase
+    .from("papers")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Paper[];
 }
 
 export async function fetchPaper(id: string): Promise<Paper | null> {
@@ -217,6 +243,8 @@ export interface NewPaperInput {
   status: PaperStatus;
   read_date: string | null;
   session_id: string | null;
+  category: string;
+  published_year: number | null;
 }
 
 export async function createPaper(input: NewPaperInput): Promise<Paper> {
@@ -272,6 +300,37 @@ export async function fetchHighlights(paperId: string): Promise<Highlight[]> {
   return data as Highlight[];
 }
 
+/**
+ * 한 차시의 "수집한 문장" — 그 차시에 등록된 논문들의 하이라이트 중
+ * purpose 가 붙은 것만. 논문마다 따로 조회하지 않고 id 를 모아 한 번에 읽는다.
+ */
+export async function fetchSessionHighlights(
+  sessionId: string
+): Promise<Highlight[]> {
+  const { data: papers, error: pErr } = await supabase
+    .from("papers")
+    .select("id")
+    .eq("session_id", sessionId);
+  if (pErr) throw pErr;
+
+  const ids = (papers ?? []).map((p) => (p as { id: string }).id);
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("highlights")
+    .select("*")
+    .in("paper_id", ids)
+    .neq("purpose", "")
+    .order("created_at", { ascending: true });
+  if (error) {
+    // 마이그레이션 전이면 purpose 컬럼이 없다. fetchAttendance 와 같이
+    // 경고만 남기고 빈 목록으로 처리해 나머지 화면은 그대로 돌게 한다.
+    console.warn("수집 문장을 불러오지 못했습니다(마이그레이션 미실행?)", error.message);
+    return [];
+  }
+  return (data ?? []) as Highlight[];
+}
+
 export interface NewHighlightInput {
   paper_id: string;
   member_id: string | null;
@@ -280,6 +339,8 @@ export interface NewHighlightInput {
   note: string;
   /** lib/highlightColors.ts 의 key */
   color: string;
+  /** 수집 용도. 빈 문자열이면 개인 하이라이트 (lib/highlightPurposes.ts) */
+  purpose: string;
 }
 
 export async function createHighlight(
@@ -296,7 +357,7 @@ export async function createHighlight(
 
 export async function updateHighlight(
   id: string,
-  input: { note: string; color: string }
+  input: { note: string; color: string; purpose: string }
 ): Promise<Highlight> {
   const { data, error } = await supabase
     .from("highlights")
@@ -367,7 +428,9 @@ export async function fetchReviewsByMember(memberId: string): Promise<Review[]> 
 
 /**
  * 그 사람이 참여한 차시 id 집합.
- * 참여 = 그 차시에 논문을 등록했거나(자동), 출석 체크를 했거나(수동).
+ * 참여 = 그 차시에 논문을 등록했거나(자동), present 로 체크했거나(수동).
+ * absent 로 선언한 행은 참여가 아니다 — 불참을 밝힌 차시가 "내 참여만" 에
+ * 섞이지 않도록 status 를 보고 거른다.
  * 세션마다 조회하지 않도록 두 방향을 각각 한 번씩만 읽는다.
  * 출석 테이블은 아직 없을 수 있으므로, 실패하면 논문 기준만으로 계산한다.
  */
@@ -380,9 +443,11 @@ export async function fetchMemberSessionIds(
       .select("session_id")
       .eq("added_by", memberId)
       .not("session_id", "is", null),
+    // status 는 뒤(add-report-2026-09-09.sql)에 붙은 컬럼이라 이름으로 집어
+    // 고르면 마이그레이션 전에는 조회 자체가 실패한다. "*" 로 읽고 걸러낸다.
     supabase
       .from("session_attendees")
-      .select("session_id")
+      .select("*")
       .eq("member_id", memberId),
   ]);
   if (papersRes.error) throw papersRes.error;
@@ -397,8 +462,10 @@ export async function fetchMemberSessionIds(
   for (const r of (papersRes.data ?? []) as { session_id: string | null }[]) {
     if (r.session_id) ids.add(r.session_id);
   }
-  for (const r of (attRes.data ?? []) as { session_id: string }[]) {
-    ids.add(r.session_id);
+  // 마이그레이션 전에는 status 가 없어 undefined 다 — 그때는 지금까지처럼
+  // 행이 있으면 참여로 센다(=== "present" 로 보면 전부 빠져 버린다).
+  for (const r of (attRes.data ?? []) as { session_id: string; status?: string }[]) {
+    if (r.status !== "absent") ids.add(r.session_id);
   }
   return ids;
 }

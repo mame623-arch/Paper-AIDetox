@@ -42,8 +42,13 @@ create table if not exists papers (
   status     text not null default 'toread' check (status in ('read', 'toread')),
   read_date  date,
   session_id uuid references sessions(id) on delete set null,
+  category   text default '',
+  published_year int,
   created_at timestamptz default now()
 );
+-- 기존(구버전)에서 올라오는 경우를 위한 컬럼 보강
+alter table papers add column if not exists category       text default '';
+alter table papers add column if not exists published_year int;
 
 -- 하이라이트 + 메모 (react-pdf-highlighter position JSON) -------
 --  color: 하이라이트 색(yellow/green/blue/pink/purple)
@@ -56,8 +61,11 @@ create table if not exists highlights (
   position   jsonb not null,
   note       text default '',
   color      text default 'yellow',
+  purpose    text default '',
   created_at timestamptz default now()
 );
+-- 기존(구버전)에서 올라오는 경우를 위한 컬럼 보강
+alter table highlights add column if not exists purpose text default '';
 
 -- 한줄평(소감) — 세션별·멤버별 한 번만 ---------------------------
 create table if not exists reviews (
@@ -77,10 +85,18 @@ create table if not exists session_attendees (
   id         uuid primary key default gen_random_uuid(),
   session_id uuid references sessions(id) on delete cascade,
   member_id  uuid references members(id)  on delete cascade,
+  status     text not null default 'present' check (status in ('present', 'absent')),
+  reason     text default '',
   created_at timestamptz default now()
 );
 create unique index if not exists session_attendees_session_member_key
   on session_attendees(session_id, member_id);
+-- 기존(구버전)에서 올라오는 경우를 위한 컬럼 보강
+alter table session_attendees add column if not exists status text not null default 'present';
+alter table session_attendees add column if not exists reason text default '';
+alter table session_attendees drop constraint if exists session_attendees_status_check;
+alter table session_attendees add constraint session_attendees_status_check
+  check (status in ('present', 'absent'));
 
 create index if not exists idx_papers_added_by on papers(added_by);
 create index if not exists idx_papers_session  on papers(session_id);

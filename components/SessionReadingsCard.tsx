@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { AttendeeReadings, Member, Paper, Review, Session } from "@/lib/types";
-import { addAttendance, removeAttendance } from "@/lib/db";
+import { setAttendance, removeAttendance } from "@/lib/db";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { useSessionReview } from "./SessionReview";
 import { Avatar, Card, formatDate, weekday } from "./ui";
@@ -111,7 +111,7 @@ export default function SessionReadingsCard({
       return s;
     });
     try {
-      if (next) await addAttendance(session.id, currentMemberId);
+      if (next) await setAttendance(session.id, currentMemberId, "present");
       else await removeAttendance(session.id, currentMemberId);
     } catch (err) {
       console.error(err);
@@ -122,7 +122,8 @@ export default function SessionReadingsCard({
         return s;
       });
       setAttendError(
-        "출석 저장에 실패했습니다. supabase/add-attendance-2026-09-03.sql 을 실행했는지 확인하세요."
+        "출석 저장에 실패했습니다. supabase/add-attendance-2026-09-03.sql 과 " +
+          "supabase/add-report-2026-09-09.sql 을 실행했는지 확인하세요."
       );
     } finally {
       setAttendBusy(false);

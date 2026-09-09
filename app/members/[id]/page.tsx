@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import type { Member, Paper, PaperStatus, Review, Session } from "@/lib/types";
 import {
   deletePaper,
@@ -19,9 +19,24 @@ import { useCurrentMemberId } from "@/lib/currentUser";
 import { useSessionReview } from "@/components/SessionReview";
 import { Avatar, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
 
-export default function MemberPage() {
+function MemberPageInner() {
   const params = useParams<{ id: string }>();
   const memberId = params.id;
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const tab = searchParams.get("tab") === "trend" ? "trend" : "record";
+
+  /** 탭을 바꾸면 page 를 버린다 — 다른 탭의 쪽 번호를 들고 갈 이유가 없다. */
+  const setTab = (next: "record" | "trend") => {
+    const q = new URLSearchParams(searchParams.toString());
+    if (next === "record") q.delete("tab");
+    else q.set("tab", next);
+    q.delete("page");
+    router.replace(`${pathname}${q.toString() ? `?${q}` : ""}`, { scroll: false });
+  };
 
   const [member, setMember] = useState<Member | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -118,51 +133,90 @@ export default function MemberPage() {
         </div>
       </div>
 
-      {!canEdit && (
-        <p className="rounded-lg border border-dashed border-line bg-surface px-4 py-2.5 text-sm text-muted">
-          {currentMemberId
-            ? `${member.name} 님의 기록입니다. 보기만 할 수 있어요.`
-            : "사이드바에서 내 이름을 고르면 내 기록을 편집할 수 있어요."}
-        </p>
-      )}
-
-      {/* 검색 */}
-      <div className="mt-6 flex max-w-sm items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5">
-        <span className="text-faint">🔍</span>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={canEdit ? "내 논문 검색 (제목·저자)" : "논문 검색 (제목·저자)"}
-          className="w-full bg-transparent text-sm outline-none placeholder:text-faint"
-        />
+      {/* 탭: 기록 / 읽기 경향 */}
+      <div className="mt-5 flex gap-1 border-b border-line">
+        {([["record", "기록"], ["trend", "읽기 경향"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm transition ${
+              tab === key
+                ? "border-accent font-semibold text-accent"
+                : "border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      <SectionTitle hint={`${read.length}편`}>읽은 논문</SectionTitle>
-      <PaperList
-        memberId={memberId}
-        papers={read}
-        reviewBySession={reviewBySession}
-        sessionById={sessionById}
-        canEdit={canEdit}
-        onReviewUpsert={upsertReview}
-        onReviewRemove={removeReview}
-        emptyText={query ? "검색 결과가 없습니다." : "아직 읽은 논문이 없습니다."}
-        onChanged={reload}
-      />
+      {tab === "record" && (
+        <>
+          {!canEdit && (
+            <p className="mt-6 rounded-lg border border-dashed border-line bg-surface px-4 py-2.5 text-sm text-muted">
+              {currentMemberId
+                ? `${member.name} 님의 기록입니다. 보기만 할 수 있어요.`
+                : "사이드바에서 내 이름을 고르면 내 기록을 편집할 수 있어요."}
+            </p>
+          )}
 
-      <SectionTitle hint={`${toread.length}편`}>읽을 논문</SectionTitle>
-      <PaperList
-        memberId={memberId}
-        papers={toread}
-        reviewBySession={reviewBySession}
-        sessionById={sessionById}
-        canEdit={canEdit}
-        onReviewUpsert={upsertReview}
-        onReviewRemove={removeReview}
-        emptyText={query ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
-        onChanged={reload}
-      />
+          {/* 검색 */}
+          <div className="mt-6 flex max-w-sm items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5">
+            <span className="text-faint">🔍</span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={canEdit ? "내 논문 검색 (제목·저자)" : "논문 검색 (제목·저자)"}
+              className="w-full bg-transparent text-sm outline-none placeholder:text-faint"
+            />
+          </div>
+
+          <SectionTitle hint={`${read.length}편`}>읽은 논문</SectionTitle>
+          <PaperList
+            memberId={memberId}
+            papers={read}
+            reviewBySession={reviewBySession}
+            sessionById={sessionById}
+            canEdit={canEdit}
+            onReviewUpsert={upsertReview}
+            onReviewRemove={removeReview}
+            emptyText={query ? "검색 결과가 없습니다." : "아직 읽은 논문이 없습니다."}
+            onChanged={reload}
+          />
+
+          <SectionTitle hint={`${toread.length}편`}>읽을 논문</SectionTitle>
+          <PaperList
+            memberId={memberId}
+            papers={toread}
+            reviewBySession={reviewBySession}
+            sessionById={sessionById}
+            canEdit={canEdit}
+            onReviewUpsert={upsertReview}
+            onReviewRemove={removeReview}
+            emptyText={query ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
+            onChanged={reload}
+          />
+        </>
+      )}
+
+      {tab === "trend" && (
+        <div className="mt-6 rounded-xl border border-dashed border-linestrong bg-surface p-8 text-center">
+          <p className="text-sm font-semibold text-ink">준비 중입니다</p>
+          <p className="mx-auto mt-2 max-w-[52ch] text-sm text-muted">
+            수집한 문장이 쌓이면, 여러 논문에 걸쳐 반복해서 꽂힌 주제를 묶어
+            읽기 경향을 정리해 보여줄 자리입니다.
+          </p>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function MemberPage() {
+  return (
+    <Suspense fallback={<p className="mx-auto max-w-[900px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>}>
+      <MemberPageInner />
+    </Suspense>
   );
 }
 

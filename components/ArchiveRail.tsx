@@ -20,13 +20,17 @@ export default function ArchiveRail({ stats }: { stats: ArchiveStats }) {
   const { monthly, categories, years, purposes } = stats;
 
   const monthlyTotal = monthly.reduce((sum, m) => sum + m.highlights, 0);
-  const isAllEmpty =
+  // "그릴 데이터가 없다"이지 "읽은 논문이 없다"가 아니다. 읽은 논문이 있어도
+  // 분야·발행연도·수집 문장이 전부 비어 있으면 이 문구가 뜨는 게 의도다 —
+  // "읽은 논문 0편"은 Task 6 본문 쪽이 따로 말한다. monthly 는 항상 12칸이라
+  // length 로는 못 재고 합계로 판정한다.
+  const nothingToChart =
     monthlyTotal === 0 &&
     categories.length === 0 &&
     years.length === 0 &&
     purposes.length === 0;
 
-  if (isAllEmpty) {
+  if (nothingToChart) {
     return (
       <Card>
         <p className="text-sm text-muted">기록이 쌓이면 여기에 보입니다.</p>

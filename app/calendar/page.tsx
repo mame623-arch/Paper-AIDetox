@@ -30,7 +30,8 @@ export default function CalendarPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 내 참여 일정 — 논문을 올렸거나 출석 체크한 차시.
+  // 내 참여 일정 — 그 차시에 논문을 올렸거나(= 참석) 예전 방식으로 출석 행이 남은 차시.
+  // 불참을 선언한 차시는 뺀다.
   // 켜면 달력·목록에서 내가 참여한 일정만 남긴다.
   // (아직 참여 기록이 없는 예정 일정도 함께 빠진다.)
   const [currentMemberId] = useCurrentMemberId();
@@ -147,7 +148,7 @@ export default function CalendarPage() {
               {currentMemberId ? (
                 <button
                   onClick={() => setOnlyMine((v) => !v)}
-                  title="내가 논문을 올렸거나 참석 체크한 일정만 남깁니다"
+                  title="내가 논문을 올린 일정만 남깁니다 (불참 선언한 차시는 뺍니다)"
                   className={`rounded-full px-3 py-1 text-[0.74rem] font-semibold transition ${
                     filterMine
                       ? "bg-accent text-white"

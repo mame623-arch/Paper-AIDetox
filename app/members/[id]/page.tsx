@@ -83,7 +83,9 @@ function MemberPageInner() {
     router.replace(`${pathname}${q.toString() ? `?${q}` : ""}`, { scroll: false });
   };
 
-  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  // 정수만 받는다 — ?page=2.5 는 두 쪽에 걸친 반쪽 창을 자르고,
+  // n === page 인 버튼이 없어 아무 쪽도 강조되지 않는다.
+  const page = Math.max(1, Math.floor(Number(searchParams.get("page"))) || 1);
 
   const setPage = (next: number) => {
     const q = new URLSearchParams(searchParams.toString());
@@ -189,11 +191,17 @@ function MemberPageInner() {
     () => buildArchiveStats(readPapers, highlights),
     [readPapers, highlights]
   );
-  // `전체` 칩의 숫자. 나머지 칩의 합과 맞아야 읽는 사람이 셈을 검산할 수 있다.
+  // 읽은 논문에 달린 문장 수. `전체` 칩의 숫자이자 머리말의 `수집 문장` 이다 —
+  // 나머지 칩의 합과 맞아야 읽는 사람이 셈을 검산할 수 있다.
   const purposeTotal = useMemo(
     () => stats.purposes.reduce((sum, p) => sum + p.count, 0),
     [stats]
   );
+
+  // 칩 줄은 셀 문장이 있을 때만 세운다. 줄이 없으면 고를 수도 끌 수도 없으니
+  // 그때는 필터가 걸려 있어도 없는 것으로 본다 — 지울 칩이 없어 갇혀 버린다.
+  const showPurposeChips = purposeTotal > 0;
+  const activePurpose = showPurposeChips ? purposeFilter : null;
 
   /**
    * 목록에 실제로 오르는 읽은 논문.
@@ -201,14 +209,14 @@ function MemberPageInner() {
    * "이 용도로 수집한 문장이 없습니다"만 가득한 쪽이 나온다.
    */
   const archive = useMemo(() => {
-    const kept = purposeFilter
+    const kept = activePurpose
       ? read.filter(
           (p) =>
-            visibleHighlights(highlightsByPaper, p.id, purposeFilter).length > 0
+            visibleHighlights(highlightsByPaper, p.id, activePurpose).length > 0
         )
       : read;
     return [...kept].sort(byRecency);
-  }, [read, highlightsByPaper, purposeFilter]);
+  }, [read, highlightsByPaper, activePurpose]);
 
   const totalPages = Math.max(1, Math.ceil(archive.length / PAGE_SIZE));
   // URL 의 page 는 목록보다 클 수 있다(삭제·상태 전환·검색·필터).
@@ -227,12 +235,15 @@ function MemberPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, page, totalPages]);
 
+  // 목록이 빈 까닭을 세 가지로 가른다: 검색어가 걸렀나 / 용도가 걸렀나 /
+  // 애초에 읽은 논문이 없나. 셋을 뭉뚱그리면 검색 중에도 "아직 읽은 논문이
+  // 없습니다" 가 떠서 검색어를 지울 생각을 못 하게 된다.
   const readEmptyText =
-    readPapers.length === 0
-      ? "아직 읽은 논문이 없습니다."
-      : read.length === 0
-        ? "검색 결과가 없습니다."
-        : "이 용도로 수집한 문장이 없습니다.";
+    query.trim() && read.length === 0
+      ? "검색 결과가 없습니다."
+      : activePurpose && read.length > 0
+        ? "이 용도로 수집한 문장이 없습니다."
+        : "아직 읽은 논문이 없습니다.";
 
   if (loading) {
     return <p className="mx-auto max-w-[900px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>;
@@ -260,7 +271,7 @@ function MemberPageInner() {
         <div>
           <h1>{member.name}</h1>
           <p className="text-sm text-muted">
-            읽은 논문 {readPapers.length}편 · 수집 문장 {highlights.length}개 ·
+            읽은 논문 {readPapers.length}편 · 수집 문장 {purposeTotal}개 ·
             한줄평 {reviewBySession.size}차시 · {attendedCount}차시 참석
           </p>
         </div>
@@ -295,12 +306,12 @@ function MemberPageInner() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_286px] lg:items-start">
             <div className="min-w-0">
-              {/* 용도 칩. 읽은 논문이 없으면 셀 것도 없으니 줄 자체를 접는다. */}
-              {readPapers.length > 0 && (
+              {/* 용도 칩. 수집한 문장이 없으면 `전체 0` 하나만 남으니 줄을 접는다. */}
+              {showPurposeChips && (
                 <PurposeFilter
                   counts={stats.purposes}
                   total={purposeTotal}
-                  value={purposeFilter}
+                  value={activePurpose}
                   onChange={(v) => {
                     setPurposeFilter(v);
                     resetPage();
@@ -327,7 +338,7 @@ function MemberPageInner() {
                 memberId={memberId}
                 papers={pageItems}
                 highlightsByPaper={highlightsByPaper}
-                purposeFilter={purposeFilter}
+                purposeFilter={activePurpose}
                 reviewBySession={reviewBySession}
                 sessionById={sessionById}
                 canEdit={canEdit}

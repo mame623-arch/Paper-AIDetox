@@ -3,10 +3,19 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
-import type { Member, Paper, PaperStatus, Review, Session } from "@/lib/types";
+import type {
+  Highlight,
+  Member,
+  Paper,
+  PaperStatus,
+  Review,
+  Session,
+} from "@/lib/types";
 import {
   deletePaper,
+  fetchHighlightsByMember,
   fetchMember,
+  fetchMemberSessionIds,
   fetchPapersByMember,
   fetchReviewsByMember,
   fetchSessions,
@@ -16,8 +25,44 @@ import {
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { useCurrentMemberId } from "@/lib/currentUser";
+import {
+  bucketPurpose,
+  buildArchiveStats,
+  groupHighlightsByPaper,
+} from "@/lib/archive";
+import { categoryLabel } from "@/lib/arxivCategories";
 import { useSessionReview } from "@/components/SessionReview";
+import ArchiveRail from "@/components/ArchiveRail";
+import PurposeFilter from "@/components/PurposeFilter";
 import { Avatar, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
+
+/** 한 쪽에 보이는 읽은 논문 수. */
+const PAGE_SIZE = 10;
+
+/** 읽은 날짜 내림차순, 같으면 등록 시각 내림차순. 날짜가 없는 것은 맨 뒤. */
+function byRecency(a: Paper, b: Paper): number {
+  if (a.read_date !== b.read_date) {
+    if (!a.read_date) return 1;
+    if (!b.read_date) return -1;
+    return b.read_date.localeCompare(a.read_date);
+  }
+  return b.created_at.localeCompare(a.created_at);
+}
+
+/**
+ * 용도 필터를 적용한 그 논문의 수집 문장.
+ * 칩의 값은 버킷(기타 포함)이고 문장의 purpose 는 사용자가 친 원문이라,
+ * 비교는 반드시 bucketPurpose 를 거친다 — 원문끼리 견주면 `기타` 가 늘 0건이 된다.
+ */
+function visibleHighlights(
+  highlightsByPaper: Map<string, Highlight[]>,
+  paperId: string,
+  purposeFilter: string | null
+): Highlight[] {
+  const list = highlightsByPaper.get(paperId) ?? [];
+  if (!purposeFilter) return list;
+  return list.filter((h) => bucketPurpose(h.purpose) === purposeFilter);
+}
 
 function MemberPageInner() {
   const params = useParams<{ id: string }>();
@@ -38,14 +83,33 @@ function MemberPageInner() {
     router.replace(`${pathname}${q.toString() ? `?${q}` : ""}`, { scroll: false });
   };
 
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+
+  const setPage = (next: number) => {
+    const q = new URLSearchParams(searchParams.toString());
+    if (next <= 1) q.delete("page");
+    else q.set("page", String(next));
+    router.replace(`${pathname}${q.toString() ? `?${q}` : ""}`, { scroll: false });
+  };
+
+  /** 목록이 달라지면 1쪽으로 되돌린다 — 3쪽에 머무르면 빈 화면이 된다. */
+  const resetPage = () => {
+    if (page > 1) setPage(1);
+  };
+
   const [member, setMember] = useState<Member | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  // 참석 차시는 직접 세지 않는다 — 논문 없이 참석한 차시를 놓치고 불참을 잘못 넣는다.
+  const [attendedCount, setAttendedCount] = useState(0);
   // 한줄평은 차시별로 쓰므로 session_id 로 찾는다. 논문은 자기 차시의 한줄평을 보여준다.
   const [reviewBySession, setReviewBySession] = useState<Map<string, Review>>(
     new Map()
   );
   const [query, setQuery] = useState("");
+  /** 칩이 고른 용도 버킷. null 이면 전체 */
+  const [purposeFilter, setPurposeFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 이 페이지의 기록을 편집할 수 있는 사람 = 본인뿐 (사이드바에서 고른 "나")
@@ -53,14 +117,18 @@ function MemberPageInner() {
   const canEdit = currentMemberId === memberId;
 
   const reload = async () => {
-    const [m, ps, rs] = await Promise.all([
+    const [m, ps, rs, hs, sessionIds] = await Promise.all([
       fetchMember(memberId),
       fetchPapersByMember(memberId),
       fetchReviewsByMember(memberId),
+      fetchHighlightsByMember(memberId),
+      fetchMemberSessionIds(memberId),
     ]);
     setMember(m);
     setPapers(ps);
     setReviewBySession(new Map(rs.map((r) => [r.session_id, r])));
+    setHighlights(hs);
+    setAttendedCount(sessionIds.size);
   };
 
   useEffect(() => {
@@ -98,8 +166,73 @@ function MemberPageInner() {
     );
   }, [papers, query]);
 
-  const read = filtered.filter((p) => p.status === "read");
-  const toread = filtered.filter((p) => p.status === "toread");
+  const read = useMemo(
+    () => filtered.filter((p) => p.status === "read"),
+    [filtered]
+  );
+  const toread = useMemo(
+    () => filtered.filter((p) => p.status === "toread"),
+    [filtered]
+  );
+
+  const highlightsByPaper = useMemo(
+    () => groupHighlightsByPaper(highlights),
+    [highlights]
+  );
+
+  /** 아카이브 전체를 읽은 논문만으로 집계한다 — 검색어·용도 필터에 흔들리지 않는다. */
+  const readPapers = useMemo(
+    () => papers.filter((p) => p.status === "read"),
+    [papers]
+  );
+  const stats = useMemo(
+    () => buildArchiveStats(readPapers, highlights),
+    [readPapers, highlights]
+  );
+  // `전체` 칩의 숫자. 나머지 칩의 합과 맞아야 읽는 사람이 셈을 검산할 수 있다.
+  const purposeTotal = useMemo(
+    () => stats.purposes.reduce((sum, p) => sum + p.count, 0),
+    [stats]
+  );
+
+  /**
+   * 목록에 실제로 오르는 읽은 논문.
+   * 용도 필터를 켜면 그 용도의 문장이 없는 논문은 뺀다 — 남기면
+   * "이 용도로 수집한 문장이 없습니다"만 가득한 쪽이 나온다.
+   */
+  const archive = useMemo(() => {
+    const kept = purposeFilter
+      ? read.filter(
+          (p) =>
+            visibleHighlights(highlightsByPaper, p.id, purposeFilter).length > 0
+        )
+      : read;
+    return [...kept].sort(byRecency);
+  }, [read, highlightsByPaper, purposeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(archive.length / PAGE_SIZE));
+  // URL 의 page 는 목록보다 클 수 있다(삭제·상태 전환·검색·필터).
+  // 그릴 때는 늘 맞춘 쪽을 쓰고, URL 은 아래 effect 가 뒤따라 고친다.
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = archive.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
+
+  /** 넘친 쪽 번호를 마지막 쪽으로 맞춘다. 자료가 다 오기 전에는 손대지 않는다 —
+   *  ?page=3 으로 들어온 사람의 쪽 번호를 첫 렌더에 지워 버리게 된다. */
+  useEffect(() => {
+    if (loading) return;
+    if (page > totalPages) setPage(totalPages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, page, totalPages]);
+
+  const readEmptyText =
+    readPapers.length === 0
+      ? "아직 읽은 논문이 없습니다."
+      : read.length === 0
+        ? "검색 결과가 없습니다."
+        : "이 용도로 수집한 문장이 없습니다.";
 
   if (loading) {
     return <p className="mx-auto max-w-[900px] px-5 py-7 text-muted md:px-10">불러오는 중…</p>;
@@ -127,8 +260,8 @@ function MemberPageInner() {
         <div>
           <h1>{member.name}</h1>
           <p className="text-sm text-muted">
-            읽음 {papers.filter((p) => p.status === "read").length} · 읽을 예정{" "}
-            {papers.filter((p) => p.status === "toread").length}
+            읽은 논문 {readPapers.length}편 · 수집 문장 {highlights.length}개 ·
+            한줄평 {reviewBySession.size}차시 · {attendedCount}차시 참석
           </p>
         </div>
       </div>
@@ -160,42 +293,76 @@ function MemberPageInner() {
             </p>
           )}
 
-          {/* 검색 */}
-          <div className="mt-6 flex max-w-sm items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5">
-            <span className="text-faint">🔍</span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={canEdit ? "내 논문 검색 (제목·저자)" : "논문 검색 (제목·저자)"}
-              className="w-full bg-transparent text-sm outline-none placeholder:text-faint"
-            />
+          <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_286px] lg:items-start">
+            <div className="min-w-0">
+              {/* 용도 칩. 읽은 논문이 없으면 셀 것도 없으니 줄 자체를 접는다. */}
+              {readPapers.length > 0 && (
+                <PurposeFilter
+                  counts={stats.purposes}
+                  total={purposeTotal}
+                  value={purposeFilter}
+                  onChange={(v) => {
+                    setPurposeFilter(v);
+                    resetPage();
+                  }}
+                />
+              )}
+
+              {/* 검색 */}
+              <div className="mt-3 flex max-w-sm items-center gap-2 rounded-lg border border-line bg-bg px-3 py-1.5">
+                <span className="text-faint">🔍</span>
+                <input
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    resetPage();
+                  }}
+                  placeholder={canEdit ? "내 논문 검색 (제목·저자)" : "논문 검색 (제목·저자)"}
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-faint"
+                />
+              </div>
+
+              <SectionTitle hint={`${archive.length}편`}>읽은 논문</SectionTitle>
+              <PaperList
+                memberId={memberId}
+                papers={pageItems}
+                highlightsByPaper={highlightsByPaper}
+                purposeFilter={purposeFilter}
+                reviewBySession={reviewBySession}
+                sessionById={sessionById}
+                canEdit={canEdit}
+                onReviewUpsert={upsertReview}
+                onReviewRemove={removeReview}
+                emptyText={readEmptyText}
+                onChanged={reload}
+              />
+              {totalPages > 1 && (
+                <Pagination
+                  page={currentPage}
+                  totalPages={totalPages}
+                  onChange={setPage}
+                />
+              )}
+
+              {/* 읽을 예정. 여기가 없으면 읽을 예정 → 읽음 을 바꿀 곳이 사라진다. */}
+              <SectionTitle hint={`${toread.length}편`}>읽을 예정</SectionTitle>
+              <PaperList
+                memberId={memberId}
+                papers={toread}
+                highlightsByPaper={null}
+                purposeFilter={null}
+                reviewBySession={reviewBySession}
+                sessionById={sessionById}
+                canEdit={canEdit}
+                onReviewUpsert={upsertReview}
+                onReviewRemove={removeReview}
+                emptyText={query ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
+                onChanged={reload}
+              />
+            </div>
+
+            <ArchiveRail stats={stats} />
           </div>
-
-          <SectionTitle hint={`${read.length}편`}>읽은 논문</SectionTitle>
-          <PaperList
-            memberId={memberId}
-            papers={read}
-            reviewBySession={reviewBySession}
-            sessionById={sessionById}
-            canEdit={canEdit}
-            onReviewUpsert={upsertReview}
-            onReviewRemove={removeReview}
-            emptyText={query ? "검색 결과가 없습니다." : "아직 읽은 논문이 없습니다."}
-            onChanged={reload}
-          />
-
-          <SectionTitle hint={`${toread.length}편`}>읽을 논문</SectionTitle>
-          <PaperList
-            memberId={memberId}
-            papers={toread}
-            reviewBySession={reviewBySession}
-            sessionById={sessionById}
-            canEdit={canEdit}
-            onReviewUpsert={upsertReview}
-            onReviewRemove={removeReview}
-            emptyText={query ? "검색 결과가 없습니다." : "읽을 논문이 없습니다."}
-            onChanged={reload}
-          />
         </>
       )}
 
@@ -220,9 +387,58 @@ export default function MemberPage() {
   );
 }
 
+/** 쪽 번호 줄. 쪽이 하나뿐일 때는 부르는 쪽에서 아예 그리지 않는다. */
+function Pagination({
+  page,
+  totalPages,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  onChange: (next: number) => void;
+}) {
+  const base = "rounded-md border px-2.5 py-1 text-xs transition";
+  const on = "border-accent bg-accent font-semibold text-white";
+  const off = "border-line text-muted hover:border-accent hover:text-accent";
+  const arrow = `${base} ${off} disabled:opacity-40 disabled:hover:border-line disabled:hover:text-muted`;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
+      <button
+        onClick={() => onChange(page - 1)}
+        disabled={page <= 1}
+        aria-label="이전 쪽"
+        className={arrow}
+      >
+        ←
+      </button>
+      {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+        <button
+          key={n}
+          onClick={() => onChange(n)}
+          aria-current={n === page ? "page" : undefined}
+          className={`${base} tabular-nums ${n === page ? on : off}`}
+        >
+          {n}
+        </button>
+      ))}
+      <button
+        onClick={() => onChange(page + 1)}
+        disabled={page >= totalPages}
+        aria-label="다음 쪽"
+        className={arrow}
+      >
+        →
+      </button>
+    </div>
+  );
+}
+
 function PaperList({
   memberId,
   papers,
+  highlightsByPaper,
+  purposeFilter,
   reviewBySession,
   sessionById,
   canEdit,
@@ -233,6 +449,9 @@ function PaperList({
 }: {
   memberId: string;
   papers: Paper[];
+  /** 논문 id → 수집 문장. null 이면 문장 칸을 붙이지 않는다 (읽을 예정 목록) */
+  highlightsByPaper: Map<string, Highlight[]> | null;
+  purposeFilter: string | null;
   /** 차시 id → 그 차시에 이 멤버가 쓴 한줄평 */
   reviewBySession: Map<string, Review>;
   sessionById: Map<string, Session>;
@@ -291,6 +510,12 @@ function PaperList({
                 review={
                   p.session_id ? reviewBySession.get(p.session_id) ?? null : null
                 }
+                highlights={
+                  highlightsByPaper
+                    ? visibleHighlights(highlightsByPaper, p.id, purposeFilter)
+                    : null
+                }
+                purposeFilter={purposeFilter}
                 canEdit={canEdit}
                 onEdit={() => setEditingId(p.id)}
                 onToggle={() => toggle(p)}
@@ -316,6 +541,8 @@ function PaperRow({
   paper,
   session,
   review,
+  highlights,
+  purposeFilter,
   canEdit,
   onEdit,
   onToggle,
@@ -327,6 +554,9 @@ function PaperRow({
   paper: Paper;
   session: Session | null;
   review: Review | null;
+  /** 용도 필터를 지난 이 논문의 수집 문장. null 이면 문장 칸 자체를 그리지 않는다 */
+  highlights: Highlight[] | null;
+  purposeFilter: string | null;
   canEdit: boolean;
   onEdit: () => void;
   onToggle: () => Promise<void>;
@@ -343,6 +573,17 @@ function PaperRow({
     onRemove: onReviewRemove,
   });
 
+  // 값이 없는 항목은 그 자리만 빠진다 — 가운뎃점이 홀로 남지 않게 join 으로 잇는다.
+  const meta = [
+    paper.authors || "저자 미상",
+    paper.read_date ? formatDate(paper.read_date) : "",
+    session?.title ?? "",
+    categoryLabel(paper.category),
+    paper.published_year ? `${paper.published_year}년` : "",
+    paper.pdf_url ? "PDF" : "링크 없음",
+    highlights && highlights.length > 0 ? `문장 ${highlights.length}개` : "",
+  ].filter(Boolean);
+
   return (
     <li className="px-4 py-3 hover:bg-surface">
       <div className="flex items-center gap-2 sm:gap-3">
@@ -351,12 +592,7 @@ function PaperRow({
           className="min-w-0 flex-1"
         >
           <div className="truncate font-medium text-ink">{paper.title}</div>
-          <div className="truncate text-xs text-muted">
-            {paper.authors || "저자 미상"}
-            {paper.read_date ? ` · ${formatDate(paper.read_date)}` : ""}
-            {session?.title ? ` · ${session.title}` : ""}
-            {paper.pdf_url ? " · PDF" : " · 링크 없음"}
-          </div>
+          <div className="text-xs text-muted">{meta.join(" · ")}</div>
         </Link>
         <StatusBadge status={paper.status} />
         {button}
@@ -388,6 +624,31 @@ function PaperRow({
       </div>
 
       {panel}
+
+      {/* 문장에 붙는 라벨은 저장된 원문 그대로다 — `기타` 로 묶는 것은 칩과 차트뿐이다. */}
+      {highlights &&
+        (highlights.length === 0 ? (
+          <p className="mt-2 text-sm text-faint">
+            {purposeFilter
+              ? "이 용도로 수집한 문장이 없습니다."
+              : "수집한 문장이 없습니다."}
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {highlights.map((h) => (
+              <li
+                key={h.id}
+                className="rounded-lg border border-line bg-surface px-3 py-2"
+              >
+                <p className="text-sm text-ink">{h.text}</p>
+                {h.note && <p className="mt-1 text-[0.82rem] text-muted">{h.note}</p>}
+                <span className="mt-1.5 inline-block rounded-full bg-accentsoft px-1.5 py-0.5 text-[0.66rem] font-semibold text-accent">
+                  {h.purpose}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ))}
     </li>
   );
 }

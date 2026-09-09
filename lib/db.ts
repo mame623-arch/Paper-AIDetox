@@ -280,6 +280,8 @@ export interface NewHighlightInput {
   note: string;
   /** lib/highlightColors.ts 의 key */
   color: string;
+  /** 수집 용도. 빈 문자열이면 개인 하이라이트 (lib/highlightPurposes.ts) */
+  purpose: string;
 }
 
 export async function createHighlight(
@@ -296,7 +298,7 @@ export async function createHighlight(
 
 export async function updateHighlight(
   id: string,
-  input: { note: string; color: string }
+  input: { note: string; color: string; purpose: string }
 ): Promise<Highlight> {
   const { data, error } = await supabase
     .from("highlights")

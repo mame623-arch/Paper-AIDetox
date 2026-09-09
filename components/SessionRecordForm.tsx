@@ -3,22 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import type { Attendance, Paper, PaperStatus, Session } from "@/lib/types";
 import type { ArxivMeta } from "@/lib/arxiv";
-import { createPaper, setAttendance } from "@/lib/db";
+import { createPaper, removeAttendance, setAttendance } from "@/lib/db";
 import { categoryLabel } from "@/lib/arxivCategories";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { Card, formatDate, weekday } from "@/components/ui";
 
-type Branch = "present" | "paper" | "absent";
+type Branch = "paper" | "absent";
 
 /**
- * 이번 차시(session)에 붙는 "참석 / 논문 등록 / 불참" 3갈래 기록 폼.
+ * 이번 차시(session)에 붙는 "논문 등록 / 불참" 2갈래 기록 폼.
  *
  * 차시가 이미 정해진 자리에 붙으므로 "스터디 일정" 드롭다운은 없다 —
  * 기존 AddPaperForm(app/members/[id]/page.tsx)과 달리 session_id 는 props 로 고정된다.
  *
- * 참석 판정은 classifyAttendance(lib/report.ts)가 "논문을 등록한 사람 = 참석"으로
- * 이미 셈하므로, 논문 등록 뒤에 출석까지 따로 쓰지 않는다. 단 이미 absent 를
- * 선언해 둔 경우만 absent 가 우선해 불참자로 남기 때문에 present 로 덮어쓴다.
+ * **참석은 갈래가 아니다.** 이 스터디에서는 논문을 올리지 않고 참석하는 경우가 없어
+ * 참석 = 논문 등록이고, classifyAttendance(lib/report.ts)도 그렇게 센다. 그래서
+ * 참석만 따로 기록하는 경로를 두지 않는다.
+ *
+ * 불참을 되돌리는 것은 present 를 쓰는 게 아니라 출석 행을 **지우는** 것이다.
+ * 지우면 논문이 있으면 참석자로, 없으면 응답 없음으로 자연스럽게 돌아간다 —
+ * 논문 없는 present 행을 인위적으로 만들지 않는다.
  */
 export default function SessionRecordForm({
   session,
@@ -142,14 +146,15 @@ export default function SessionRecordForm({
     ? "참석"
     : `불참${myAttendance.reason ? ` · ${myAttendance.reason}` : ""}`;
 
-  const savePresent = async () => {
+  // 불참 취소 — 행을 지운다. 논문이 있으면 참석자로, 없으면 응답 없음으로 돌아간다.
+  const cancelAbsent = async () => {
     setSaving(true);
     setError("");
     try {
-      await setAttendance(session.id, currentMemberId, "present");
+      await removeAttendance(session.id, currentMemberId);
     } catch (err) {
       console.error(err);
-      setError("저장에 실패했습니다.");
+      setError("불참 취소에 실패했습니다.");
       setSaving(false);
       return;
     }
@@ -173,23 +178,21 @@ export default function SessionRecordForm({
     setSaving(true);
     setError("");
 
-    // 참석 판정은 이미 "논문 등록 = 참석" 이라 따로 쓰지 않는다.
+    // 참석 판정은 이미 "논문 등록 = 참석" 이라 출석을 따로 쓰지 않는다.
     // 예외: 이미 불참을 선언해 뒀다면 absent 가 우선해 그대로 불참자로 남으므로,
-    // 이때만 present 로 덮어써 불참 표시를 지운다.
+    // 이때만 출석 행을 지워 불참 표시를 없앤다(present 를 새로 쓰지 않는다).
     //
-    // 순서(컨트롤러 판단 — 브리핑의 순서를 뒤집었다): 멱등한 쓰기(setAttendance,
-    // upsert)를 먼저, 멱등하지 않은 쓰기(createPaper, insert)를 나중에 한다.
-    // createPaper 를 먼저 하면, 뒤이은 setAttendance 가 실패했을 때 논문은 이미
-    // 저장돼 있는데 "저장 실패"로 보이고, 재시도하면 논문이 중복 생성된다.
-    // 반대로 하면 setAttendance 가 실패해도 아직 아무것도 안 바뀐 상태이고,
-    // setAttendance 가 성공한 뒤 createPaper 만 실패하면 "참석(논문 없이)"이라는
-    // 이 도메인에서 정상적인 상태로 남아, 재시도해도 upsert 라 중복이 없다.
+    // 순서: 멱등한 쓰기(removeAttendance, delete)를 먼저, 멱등하지 않은 쓰기
+    // (createPaper, insert)를 나중에 한다. createPaper 를 먼저 하면 뒤이은 출석
+    // 처리가 실패했을 때 논문은 저장돼 있는데 "저장 실패"로 보이고 재시도하면
+    // 논문이 중복 생성된다. 반대로 하면 앞이 실패해도 아무것도 안 바뀐 상태이고,
+    // 뒤만 실패하면 "응답 없음 + 논문 없음"으로 남아 재시도해도 중복이 없다.
     if (myAttendance?.status === "absent") {
       try {
-        await setAttendance(session.id, currentMemberId, "present");
+        await removeAttendance(session.id, currentMemberId);
       } catch (err) {
         console.error(err);
-        setError("참석 처리에 실패했습니다.");
+        setError("불참 표시를 지우지 못했습니다.");
         setSaving(false);
         return;
       }
@@ -266,6 +269,17 @@ export default function SessionRecordForm({
         <p className="text-sm text-muted">
           내 현재 상태 · <span className="font-medium text-ink">{statusLine}</span>
         </p>
+        {myAttendance?.status === "absent" && (
+          <button
+            type="button"
+            onClick={cancelAbsent}
+            disabled={saving}
+            title="불참 표시를 지웁니다. 논문이 있으면 참석자로 돌아갑니다."
+            className="rounded-full border border-line px-2.5 py-0.5 text-[0.74rem] text-muted transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            불참 취소
+          </button>
+        )}
         <button
           type="button"
           onClick={closeAll}
@@ -276,9 +290,6 @@ export default function SessionRecordForm({
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
-        <BranchButton active={branch === "present"} onClick={() => selectBranch("present")}>
-          참석
-        </BranchButton>
         <BranchButton active={branch === "paper"} onClick={() => selectBranch("paper")}>
           논문 등록
         </BranchButton>
@@ -286,30 +297,6 @@ export default function SessionRecordForm({
           불참
         </BranchButton>
       </div>
-
-      {branch === "present" && (
-        <div className="space-y-3">
-          <p className="text-sm text-muted">논문 등록 없이 참석만 기록합니다.</p>
-          {error && <p className="text-sm text-[#b4543f]">{error}</p>}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={savePresent}
-              disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-            >
-              {saving ? "저장 중…" : "참석으로 저장"}
-            </button>
-            <button
-              type="button"
-              onClick={cancelBranch}
-              className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:bg-surface"
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      )}
 
       {branch === "paper" && (
         <form onSubmit={submitPaper} className="space-y-3">

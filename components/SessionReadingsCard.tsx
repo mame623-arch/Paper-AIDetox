@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { AttendeeReadings, Member, Paper, Review, Session } from "@/lib/types";
-import { setAttendance, removeAttendance } from "@/lib/db";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { useSessionReview } from "./SessionReview";
 import { Avatar, Card, formatDate, weekday } from "./ui";
@@ -20,17 +19,16 @@ export default function SessionReadingsCard({
   readings: AttendeeReadings[];
   /** read 모드에서 세션의 기존 한줄평 */
   reviews?: Review[];
-  /** 출석 체크에 쓰는 전체 멤버 목록 */
+  /** 참석자 줄을 그리는 데 쓰는 전체 멤버 목록 */
   members: Member[];
   mode: "read" | "toread";
   emptyText: string;
 }) {
   // 멤버별 한줄평 단일 소스. 서버 prop으로 초기화하고, 추가/수정/삭제를 반영.
   const [reviewMap, setReviewMap] = useState<Map<string, Review>>(new Map());
-  // 출석 체크된 멤버 id — 낙관적 업데이트로 즉시 반영한다.
+  // 출석 행이 있는 멤버 id. 이제 이 카드에서 출석을 쓰지 않으므로 읽기 전용이다 —
+  // 참석은 논문 등록에서만 나오고, 여기 남는 것은 예전 방식으로 남은 기록뿐이다.
   const [attending, setAttending] = useState<Set<string>>(new Set());
-  const [attendError, setAttendError] = useState("");
-  const [attendBusy, setAttendBusy] = useState(false);
   const [currentMemberId] = useCurrentMemberId();
 
   useEffect(() => {
@@ -59,7 +57,7 @@ export default function SessionReadingsCard({
     [members]
   );
 
-  // 참석자 = 논문 등록자 ∪ 출석 체크한 사람
+  // 참석자 = 논문 등록자 ∪ 예전 방식으로 남은 출석 행
   const rows = useMemo(() => {
     const ids = new Set<string>([...papersByMember.keys(), ...attending]);
     return [...ids]
@@ -96,39 +94,6 @@ export default function SessionReadingsCard({
     });
 
   const showAttendance = mode === "read";
-  const iAmAttending = Boolean(currentMemberId && attending.has(currentMemberId));
-
-  const toggleMyAttendance = async () => {
-    if (!currentMemberId) return;
-    const next = !iAmAttending;
-    setAttendBusy(true);
-    setAttendError("");
-    // 낙관적 반영 후 실패하면 되돌린다.
-    setAttending((prev) => {
-      const s = new Set(prev);
-      if (next) s.add(currentMemberId);
-      else s.delete(currentMemberId);
-      return s;
-    });
-    try {
-      if (next) await setAttendance(session.id, currentMemberId, "present");
-      else await removeAttendance(session.id, currentMemberId);
-    } catch (err) {
-      console.error(err);
-      setAttending((prev) => {
-        const s = new Set(prev);
-        if (next) s.delete(currentMemberId);
-        else s.add(currentMemberId);
-        return s;
-      });
-      setAttendError(
-        "출석 저장에 실패했습니다. supabase/add-attendance-2026-09-03.sql 과 " +
-          "supabase/add-report-2026-09-09.sql 을 실행했는지 확인하세요."
-      );
-    } finally {
-      setAttendBusy(false);
-    }
-  };
 
   const paperCount = rows.reduce((n, r) => n + r.papers.length, 0);
 
@@ -150,55 +115,30 @@ export default function SessionReadingsCard({
         )}
       </div>
 
-      {/* 참석 요약 + 내 출석 체크 */}
+      {/* 참석 요약 — 참석은 논문 등록에서 나온다. 여기서 체크하지 않는다. */}
       {showAttendance && (
         <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-line pb-3">
           <span className="text-sm font-semibold text-ink">
             참석 {rows.length}명
           </span>
           <span className="text-[0.72rem] text-faint">논문 {paperCount}편</span>
-          <div className="ml-auto flex items-center gap-2">
-            {currentMemberId ? (
-              <button
-                onClick={toggleMyAttendance}
-                disabled={attendBusy}
-                title={iAmAttending ? "참석 취소" : "참석 체크"}
-                className={`rounded-full px-3 py-1 text-[0.74rem] font-semibold transition disabled:opacity-60 ${
-                  iAmAttending
-                    ? "bg-accent text-white"
-                    : "border border-line text-muted hover:border-accent hover:text-accent"
-                }`}
-              >
-                {iAmAttending ? "✓ 참석" : "참석"}
-              </button>
-            ) : (
-              <span className="text-[0.72rem] text-faint">
-                사이드바에서 내 이름을 고르면 참석 체크할 수 있어요
-              </span>
-            )}
-          </div>
-          {attendError && (
-            <p className="w-full text-[0.72rem] text-[#b4543f]">{attendError}</p>
-          )}
         </div>
       )}
 
       {rows.length === 0 ? (
         <p className="text-sm text-muted">
           {mode === "read"
-            ? "참석 기록이 없습니다. 논문을 등록하거나 참석 체크를 해보세요."
+            ? "참석 기록이 없습니다."
             : "읽을 논문이 아직 등록되지 않았습니다."}
         </p>
       ) : (
         <ul className="divide-y divide-line">
-          {rows.map(({ member, papers, attended }) => (
+          {rows.map(({ member, papers }) => (
             <MemberReadingRow
               key={member.id}
               memberId={member.id}
               memberName={member.name}
               papers={papers}
-              attended={attended}
-              showAttendance={showAttendance}
               sessionId={session.id}
               showReview={mode === "read"}
               review={reviewMap.get(member.id) ?? null}
@@ -217,8 +157,6 @@ function MemberReadingRow({
   memberId,
   memberName,
   papers,
-  attended,
-  showAttendance,
   sessionId,
   showReview,
   review,
@@ -229,8 +167,6 @@ function MemberReadingRow({
   memberId: string;
   memberName: string;
   papers: Paper[];
-  attended: boolean;
-  showAttendance: boolean;
   sessionId: string;
   showReview: boolean;
   review: Review | null;
@@ -257,19 +193,9 @@ function MemberReadingRow({
           <Avatar name={memberName} />
         </Link>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link href={`/members/${memberId}`} className="font-medium text-ink hover:underline">
-              {memberName}
-            </Link>
-            {showAttendance && attended && (
-              <span
-                className="rounded-full bg-accentsoft px-1.5 py-0.5 text-[0.64rem] font-semibold text-accent"
-                title="출석 체크함"
-              >
-                참석
-              </span>
-            )}
-          </div>
+          <Link href={`/members/${memberId}`} className="font-medium text-ink hover:underline">
+            {memberName}
+          </Link>
           <div className="mt-1 space-y-1">
             {papers.length === 0 ? (
               <p className="text-sm text-faint">논문 없이 참석</p>

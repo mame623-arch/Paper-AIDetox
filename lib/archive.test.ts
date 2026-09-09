@@ -108,7 +108,16 @@ describe("buildArchiveStats — purposes", () => {
       [hl("a", "p1", "좋은 표현"), hl("b", "p1", "좋은 표현"), hl("c", "p1", "발표자료용"), hl("d", "p1", "나중에 인용")],
       NOW
     );
-    expect(r.purposes).toEqual([{ purpose: "좋은 표현", count: 2 }, { purpose: "기타", count: 2 }]);
+    expect(r.purposes).toEqual([{ purpose: "기타", count: 2 }, { purpose: "좋은 표현", count: 2 }]);
+  });
+
+  it("문장 수가 같으면 이름 오름차순", () => {
+    const r = buildArchiveStats(
+      [paper("p1", "2026-09-03")],
+      [hl("a", "p1", "문단 구조"), hl("b", "p1", "논리 연결")],
+      NOW
+    );
+    expect(r.purposes.map((p) => p.purpose)).toEqual(["논리 연결", "문단 구조"]);
   });
 
   it("읽은 논문에 속하지 않는 문장은 세지 않는다", () => {

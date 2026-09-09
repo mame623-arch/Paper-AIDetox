@@ -98,7 +98,7 @@ export function buildArchiveStats(
   }
   const purposes = [...purposeCount.entries()]
     .map(([purpose, count]) => ({ purpose, count }))
-    .sort((a, b) => b.count - a.count || b.purpose.localeCompare(a.purpose));
+    .sort((a, b) => b.count - a.count || a.purpose.localeCompare(b.purpose));
 
   return { monthly, categories, years, purposes };
 }

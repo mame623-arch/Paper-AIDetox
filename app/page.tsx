@@ -1,10 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Attendance, AttendeeReadings, Member, Review, Session } from "@/lib/types";
+import Link from "next/link";
+import type {
+  Attendance,
+  AttendeeReadings,
+  Member,
+  Paper,
+  Review,
+  Session,
+} from "@/lib/types";
 import {
   fetchAttendance,
   fetchMembers,
+  fetchPapersBySession,
   fetchRecentSession,
   fetchReviews,
   fetchSessionReadings,
@@ -23,6 +32,7 @@ export default function HomePage() {
   const [upcomingReadings, setUpcomingReadings] = useState<AttendeeReadings[]>([]);
   const [recentReviews, setRecentReviews] = useState<Review[]>([]);
   const [upcomingAttendance, setUpcomingAttendance] = useState<Attendance[]>([]);
+  const [upcomingPapers, setUpcomingPapers] = useState<Paper[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentMemberId] = useCurrentMemberId();
@@ -47,9 +57,11 @@ export default function HomePage() {
     if (u) {
       setUpcomingReadings(await fetchSessionReadings(u.id, ms));
       setUpcomingAttendance(await fetchAttendance(u.id));
+      setUpcomingPapers(await fetchPapersBySession(u.id));
     } else {
       setUpcomingReadings([]);
       setUpcomingAttendance([]);
+      setUpcomingPapers([]);
     }
   };
 
@@ -68,8 +80,11 @@ export default function HomePage() {
   const myAttendance = currentMemberId
     ? upcomingAttendance.find((a) => a.member_id === currentMemberId) ?? null
     : null;
+  // 참석 분류(upcomingReadings)는 불참 선언자를 걸러 내므로 "내 논문" 의 출처가
+  // 될 수 없다 — 불참으로 바꾸는 순간 논문이 사라져 확인 창이 뜨지 않는다.
+  // 차시의 논문을 그대로 읽어 등록자로만 고른다(app/sessions/[id]/page.tsx 와 같다).
   const myPapers = currentMemberId
-    ? upcomingReadings.find((r) => r.member.id === currentMemberId)?.papers ?? []
+    ? upcomingPapers.filter((p) => p.added_by === currentMemberId)
     : [];
 
   return (
@@ -83,7 +98,23 @@ export default function HomePage() {
         <p className="mt-8 text-muted">불러오는 중…</p>
       ) : (
         <>
-          <SectionTitle hint={recent ? `${formatDate(recent.date)} ${weekday(recent.date)}` : undefined}>
+          <SectionTitle
+            hint={
+              recent ? (
+                <span className="flex items-baseline gap-2.5">
+                  <span>
+                    {formatDate(recent.date)} {weekday(recent.date)}
+                  </span>
+                  <Link
+                    href={`/sessions/${recent.id}`}
+                    className="text-accent hover:underline"
+                  >
+                    보고서 보기 →
+                  </Link>
+                </span>
+              ) : undefined
+            }
+          >
             최근 스터디
           </SectionTitle>
           <SessionReadingsCard

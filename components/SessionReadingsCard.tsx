@@ -122,7 +122,8 @@ export default function SessionReadingsCard({
         return s;
       });
       setAttendError(
-        "출석 저장에 실패했습니다. supabase/add-attendance-2026-09-03.sql 을 실행했는지 확인하세요."
+        "출석 저장에 실패했습니다. supabase/add-attendance-2026-09-03.sql 과 " +
+          "supabase/add-report-2026-09-09.sql 을 실행했는지 확인하세요."
       );
     } finally {
       setAttendBusy(false);

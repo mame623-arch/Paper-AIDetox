@@ -159,7 +159,9 @@ export async function removeAttendance(
 
 /**
  * "누가 참석해서 어떤 논문을 다뤘는지" 뷰.
- * 참석 = 그 세션에 논문을 등록했거나(자동), 출석 체크를 했거나(수동).
+ * 참석 = (그 세션에 논문을 등록했거나(자동) present 로 체크했거나(수동)) − absent 선언.
+ * absent 가 우선한다 — 논문을 올려 뒀어도 불참을 선언했으면 참석자가 아니다
+ * (lib/report.ts 의 classifyAttendance 와 같은 규칙).
  */
 export async function fetchSessionReadings(
   sessionId: string,
@@ -179,14 +181,23 @@ export async function fetchSessionReadings(
     byMember.set(p.added_by, list);
   }
 
-  const checked = new Set(attendance.map((a) => a.member_id));
   const memberById = new Map(members.map((m) => [m.id, m]));
 
-  return [...new Set([...byMember.keys(), ...checked])]
+  // status 를 본다. 행이 있어도 absent 는 참석이 아니고, 논문을 올렸어도
+  // absent 가 우선한다 (lib/report.ts 의 classifyAttendance 와 같은 규칙).
+  const present = new Set(
+    attendance.filter((a) => a.status !== "absent").map((a) => a.member_id)
+  );
+  const absent = new Set(
+    attendance.filter((a) => a.status === "absent").map((a) => a.member_id)
+  );
+
+  return [...new Set([...byMember.keys(), ...present])]
+    .filter((id) => !absent.has(id))
     .map((memberId) => ({
       member: memberById.get(memberId)!,
       papers: byMember.get(memberId) ?? [],
-      attended: checked.has(memberId),
+      attended: present.has(memberId),
     }))
     .filter((r) => r.member)
     .sort((a, b) => a.member.sort - b.member.sort);
@@ -417,7 +428,9 @@ export async function fetchReviewsByMember(memberId: string): Promise<Review[]> 
 
 /**
  * 그 사람이 참여한 차시 id 집합.
- * 참여 = 그 차시에 논문을 등록했거나(자동), 출석 체크를 했거나(수동).
+ * 참여 = 그 차시에 논문을 등록했거나(자동), present 로 체크했거나(수동).
+ * absent 로 선언한 행은 참여가 아니다 — 불참을 밝힌 차시가 "내 참여만" 에
+ * 섞이지 않도록 status 를 보고 거른다.
  * 세션마다 조회하지 않도록 두 방향을 각각 한 번씩만 읽는다.
  * 출석 테이블은 아직 없을 수 있으므로, 실패하면 논문 기준만으로 계산한다.
  */
@@ -430,9 +443,11 @@ export async function fetchMemberSessionIds(
       .select("session_id")
       .eq("added_by", memberId)
       .not("session_id", "is", null),
+    // status 는 뒤(add-report-2026-09-09.sql)에 붙은 컬럼이라 이름으로 집어
+    // 고르면 마이그레이션 전에는 조회 자체가 실패한다. "*" 로 읽고 걸러낸다.
     supabase
       .from("session_attendees")
-      .select("session_id")
+      .select("*")
       .eq("member_id", memberId),
   ]);
   if (papersRes.error) throw papersRes.error;
@@ -447,8 +462,10 @@ export async function fetchMemberSessionIds(
   for (const r of (papersRes.data ?? []) as { session_id: string | null }[]) {
     if (r.session_id) ids.add(r.session_id);
   }
-  for (const r of (attRes.data ?? []) as { session_id: string }[]) {
-    ids.add(r.session_id);
+  // 마이그레이션 전에는 status 가 없어 undefined 다 — 그때는 지금까지처럼
+  // 행이 있으면 참여로 센다(=== "present" 로 보면 전부 빠져 버린다).
+  for (const r of (attRes.data ?? []) as { session_id: string; status?: string }[]) {
+    if (r.status !== "absent") ids.add(r.session_id);
   }
   return ids;
 }

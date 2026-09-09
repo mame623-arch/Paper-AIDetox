@@ -267,12 +267,21 @@ function PresentMemberRow({
             </div>
           )}
 
-          {/* 한줄평 — 차시 단위라 사람당 한 번. 본인이면 쓰기/수정/삭제까지 된다 */}
+          {/* 한줄평 — 차시 단위라 사람당 한 번. 본인이면 쓰기/수정/삭제까지 된다.
+              보고서는 읽는 자리라 내용을 그대로 펼쳐 둔다. 토글(button)은 본인이
+              수정·삭제로 들어가는 입구일 뿐이라 canEdit 일 때만 붙인다 —
+              남의 것에 붙으면 이미 보이는 글을 한 번 더 여는 버튼이 된다. */}
           <div className="space-y-1">
             <FieldLabel>한줄평</FieldLabel>
-            <div className="flex items-center gap-2">
-              {!review && <Blank />}
-              {button}
+            <div className="flex items-start gap-2">
+              {review ? (
+                <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-body">
+                  {review.text}
+                </p>
+              ) : (
+                <Blank />
+              )}
+              {canEdit && button}
             </div>
             {panel}
           </div>

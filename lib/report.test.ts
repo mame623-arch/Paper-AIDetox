@@ -48,4 +48,10 @@ describe("classifyAttendance", () => {
     expect(r.present).toHaveLength(0);
     expect(r.noResponse).toHaveLength(4);
   });
+
+  it("present 체크와 논문 등록이 함께 있어도 중복되지 않는다", () => {
+    const r = classifyAttendance(MEMBERS, [paper("1")], [att("1", "present")]);
+    expect(r.present).toHaveLength(1);
+    expect(r.present[0].id).toBe("1");
+  });
 });

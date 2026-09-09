@@ -1276,7 +1276,7 @@ git commit -m "docs: 보고서·수집 용도·arXiv 자동 채움 안내"
 
 전체 작업이 끝나면 한 번에 확인한다.
 
-- [ ] `npx vitest run` — 19 tests 통과
+- [ ] `npx vitest run` — 22 tests 통과
 - [ ] `npx tsc --noEmit` — exit 0
 - [ ] `npm run lint` — 경고 없음
 - [ ] `npm run build` — 성공

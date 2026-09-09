@@ -331,6 +331,49 @@ export async function fetchSessionHighlights(
   return (data ?? []) as Highlight[];
 }
 
+/**
+ * 그 사람이 수집한 문장 — purpose 가 붙은 하이라이트만.
+ * 논문마다 따로 조회하지 않고 논문 id 를 모아 한 번에 읽는다
+ * (fetchSessionHighlights 의 멤버 버전).
+ *
+ * 누구의 문장인가 — 두 조건을 모두 만족해야 한다.
+ *  1. 그 사람이 등록한 논문에 달려 있고
+ *  2. highlights.member_id 가 그 사람이거나 비어 있다
+ * 1만 쓰면 남의 문장이 섞인다. 지금은 논문 주인만 하이라이트를 남길 수 있지만
+ * 그 제한이 생기기 전 데이터에는 남의 논문에 단 것이 있을 수 있고 RLS 는 막지 않는다.
+ * 2의 "비어 있다"는 사이드바에서 이름을 고르지 않고 남긴 옛 기록을 논문 주인 것으로
+ * 보기 위한 것이다.
+ */
+export async function fetchHighlightsByMember(
+  memberId: string
+): Promise<Highlight[]> {
+  const { data: papers, error: pErr } = await supabase
+    .from("papers")
+    .select("id")
+    .eq("added_by", memberId);
+  if (pErr) throw pErr;
+
+  const ids = (papers ?? []).map((p) => (p as { id: string }).id);
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("highlights")
+    .select("*")
+    .in("paper_id", ids)
+    .neq("purpose", "")
+    .order("created_at", { ascending: true });
+  if (error) {
+    // 마이그레이션 전이면 purpose 컬럼이 없다. fetchAttendance 와 같이
+    // 경고만 남기고 빈 목록으로 처리해 나머지 화면은 그대로 돌게 한다.
+    console.warn("수집 문장을 불러오지 못했습니다(마이그레이션 미실행?)", error.message);
+    return [];
+  }
+
+  return ((data ?? []) as Highlight[]).filter(
+    (h) => !h.member_id || h.member_id === memberId
+  );
+}
+
 export interface NewHighlightInput {
   paper_id: string;
   member_id: string | null;

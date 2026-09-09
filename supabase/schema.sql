@@ -42,6 +42,8 @@ create table if not exists papers (
   status     text not null default 'toread' check (status in ('read', 'toread')),
   read_date  date,
   session_id uuid references sessions(id) on delete set null,
+  category   text default '',
+  published_year int,
   created_at timestamptz default now()
 );
 
@@ -56,6 +58,7 @@ create table if not exists highlights (
   position   jsonb not null,
   note       text default '',
   color      text default 'yellow',
+  purpose    text default '',
   created_at timestamptz default now()
 );
 
@@ -77,6 +80,8 @@ create table if not exists session_attendees (
   id         uuid primary key default gen_random_uuid(),
   session_id uuid references sessions(id) on delete cascade,
   member_id  uuid references members(id)  on delete cascade,
+  status     text not null default 'present' check (status in ('present', 'absent')),
+  reason     text default '',
   created_at timestamptz default now()
 );
 create unique index if not exists session_attendees_session_member_key

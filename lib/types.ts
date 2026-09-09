@@ -28,6 +28,10 @@ export interface Paper {
   status: PaperStatus;
   read_date: string | null;
   session_id: string | null;
+  /** arXiv 분류 코드 원본 (예: "cs.CL"). arXiv 가 아니면 빈 문자열 */
+  category: string;
+  /** 논문 발행연도. 모르면 null */
+  published_year: number | null;
   created_at: string;
 }
 
@@ -40,6 +44,8 @@ export interface Highlight {
   note: string;
   /** yellow | green | blue | pink | purple (lib/highlightColors.ts) */
   color: string;
+  /** 수집 용도. 값이 있으면 "수집한 문장", 비어 있으면 개인 하이라이트 */
+  purpose: string;
   created_at: string;
 }
 
@@ -56,6 +62,9 @@ export interface Attendance {
   id: string;
   session_id: string;
   member_id: string;
+  status: "present" | "absent";
+  /** 불참 사유. 참석이면 빈 문자열 */
+  reason: string;
   created_at: string;
 }
 

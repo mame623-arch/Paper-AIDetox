@@ -40,9 +40,8 @@
 | `lib/report.test.ts` | 위 함수 단위 테스트 |
 | `app/api/arxiv/route.ts` | arXiv 메타데이터 프록시 |
 | `components/PurposeSelect.tsx` | 용도 선택 UI (없음/3개/기타+자유입력) |
-| `components/SessionRecordForm.tsx` | `＋ 이번 차시 기록` — 논문 등록 / 불참 갈래 |
+| `components/SessionRecordForm.tsx` | `＋ 이번 차시 기록` — 참석 / 논문 등록 / 불참 갈래 |
 | `components/SessionReport.tsx` | 보고서 본문 (참석자·불참자·응답없음) |
-| `scripts/backfill-arxiv.mjs` | 기존 논문의 분야·발행연도 채우기 |
 
 **고치는 것**
 
@@ -56,7 +55,7 @@
 | `app/page.tsx` | 예정 스터디 카드에 기록 버튼 |
 | `app/sessions/[id]/page.tsx` | 보고서로 개편 |
 | `app/members/[id]/page.tsx` | `AddPaperForm` 제거 |
-| `README.md` | 페이지 표·자동 채움·마이그레이션·백필 안내 |
+| `README.md` | 페이지 표·자동 채움·수집 용도·마이그레이션 안내 |
 
 ---
 
@@ -227,6 +226,14 @@ describe("extractArxivId", () => {
   it("빈 문자열이면 null", () => {
     expect(extractArxivId("")).toBeNull();
   });
+
+  it(".pdf 확장자가 붙어도 뗀다", () => {
+    expect(extractArxivId("https://arxiv.org/pdf/2402.08787.pdf")).toBe("2402.08787");
+  });
+
+  it("버전과 확장자가 함께 붙어도 뗀다", () => {
+    expect(extractArxivId("https://arxiv.org/pdf/2402.08787v4.pdf")).toBe("2402.08787");
+  });
 });
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -263,6 +270,19 @@ describe("parseArxivAtom", () => {
   it("entry 가 없으면 null", () => {
     expect(parseArxivAtom("<feed></feed>")).toBeNull();
   });
+
+  // arXiv 는 잘못된 id 에 대해 404 가 아니라 200 으로 "Error" entry 를 돌려준다.
+  // 이걸 거르지 않으면 제목이 "Error" 인 논문이 저장된다.
+  it("arXiv 오류 응답은 null", () => {
+    const err = `<feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <id>http://arxiv.org/api/errors#incorrect_id_format_for_zzz</id>
+        <title>Error</title>
+        <summary>incorrect id format for zzz</summary>
+      </entry>
+    </feed>`;
+    expect(parseArxivAtom(err)).toBeNull();
+  });
 });
 ```
 
@@ -293,11 +313,18 @@ export interface ArxivMeta {
   category: string;
 }
 
-/** arxiv.org/pdf/<id> · /pdf/<id>v3 · /abs/<id> 에서 버전 뗀 id 를 뽑는다. */
+/**
+ * arxiv.org/pdf/<id> · /pdf/<id>v3 · /pdf/<id>.pdf · /pdf/<id>v3.pdf · /abs/<id>
+ * 에서 확장자와 버전을 뗀 id 를 뽑는다. 확장자를 먼저 떼야 버전 제거가 걸린다.
+ *
+ * 옛 형식 id(math.GT/0309136 처럼 슬래시가 들어가는 것)는 받지 않는다 —
+ * null 이 되어 손 입력으로 넘어간다.
+ */
 export function extractArxivId(url: string): string | null {
   const m = url.match(/arxiv\.org\/(?:pdf|abs)\/([^\s/?#]+)/i);
   if (!m) return null;
-  return m[1].replace(/v\d+$/i, "");
+  const id = m[1].replace(/\.pdf$/i, "").replace(/v\d+$/i, "");
+  return id || null;
 }
 
 const textOf = (xml: string, tag: string): string | null => {
@@ -311,6 +338,10 @@ const squash = (s: string) => s.replace(/\s+/g, " ").trim();
 export function parseArxivAtom(xml: string): ArxivMeta | null {
   const entry = textOf(xml, "entry");
   if (!entry) return null;
+
+  // arXiv 는 잘못된 id 에도 200 으로 응답하고 "Error" entry 를 돌려준다.
+  // 거르지 않으면 제목이 "Error" 인 논문이 저장된다.
+  if (/arxiv\.org\/api\/errors/i.test(textOf(entry, "id") ?? "")) return null;
 
   const title = squash(textOf(entry, "title") ?? "");
 
@@ -336,7 +367,7 @@ export function parseArxivAtom(xml: string): ArxivMeta | null {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run lib/arxiv.test.ts`
-Expected: PASS — 10 tests
+Expected: PASS — 13 tests
 
 - [ ] **Step 5: 커밋**
 
@@ -901,7 +932,7 @@ export function classifyAttendance(
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run`
-Expected: PASS — Task 2 의 10개와 합쳐 16 tests
+Expected: PASS — Task 2 의 13개와 합쳐 19 tests
 
 - [ ] **Step 5: 커밋**
 
@@ -922,7 +953,7 @@ git commit -m "feat: 보고서 참석 분류
 - Create: `lib/arxivCategories.ts`
 
 **Interfaces:**
-- Consumes: `setAttendance`, `createPaper`, `NewPaperInput` (Task 6), `ArxivMeta` (Task 2)
+- Consumes: `setAttendance`, `removeAttendance`, `createPaper`, `NewPaperInput` (Task 6), `ArxivMeta` (Task 2)
 - Produces: `<SessionRecordForm session={Session} myAttendance={Attendance | null} myPapers={Paper[]} onDone={() => Promise<void>} />`
 
 - [ ] **Step 1: 분류 코드 대응표 작성**
@@ -963,12 +994,58 @@ Create `components/SessionRecordForm.tsx`. 요구사항은 이렇다.
 
 - 닫혀 있을 때는 버튼 하나: `＋ 이번 차시 기록`
 - 열면 **내 현재 상태를 먼저 보여준다**: `응답 없음` / `참석` / `불참 · <사유>`. 예정 스터디 카드에는 `참석` 버튼이 없어서 불참을 되돌릴 자리가 이 폼 안에만 있기 때문이다.
-- 갈래 선택: `논문 등록` / `불참`
+- 갈래 선택: **`참석` / `논문 등록` / `불참` 세 갈래**
+  - **`참석`** — 논문 없이 참석만 표시한다. `setAttendance(session.id, 나, "present")` 한 번이 전부다.
+    이 갈래가 없으면 **불참을 선언한 사람이 논문을 등록하지 않고는 참석으로 되돌릴 수 없다.**
+    예정 스터디 카드에는 `참석` 버튼이 없고(그 버튼은 `mode === "read"` 일 때만 나온다),
+    Task 10 에서 차시 상세의 `SessionReadingsCard` 도 보고서로 바뀌기 때문이다.
+    "논문 없이 참석" 은 지금도 있는 개념이라 보고서가 그대로 받아준다.
 - **논문 등록** 칸: PDF 링크 · 제목 · 저자 · 상태(`읽을 예정`/`읽음`)
   - 링크 입력이 멈추고 600ms 뒤 `/api/arxiv?url=…` 를 한 번 부른다 (디바운스)
+  - **응답이 늦게 도착해 새 링크를 덮어쓰지 않게 막는다.** 디바운스만으로는 막히지 않는다 —
+    이미 날아간 요청은 링크를 바꿔도 계속 살아 있다. 요청마다 번호를 매겨 마지막 것만 반영한다:
+
+    ```ts
+    const reqRef = useRef(0);
+
+    const lookup = async (link: string) => {
+      const seq = ++reqRef.current;
+      try {
+        const r = await fetch(`/api/arxiv?url=${encodeURIComponent(link)}`);
+        if (seq !== reqRef.current) return;   // 그새 링크가 바뀌었다
+        if (!r.ok) return;                    // 422·502 는 조용히 넘어간다
+        const meta = (await r.json()) as ArxivMeta;
+        if (seq !== reqRef.current || !meta?.title) return;
+        // 비어 있는 칸만 채운다 — 사용자가 고쳐 둔 값을 덮지 않는다
+        setTitle((t) => t || meta.title);
+        setAuthors((a) => a || meta.authors);
+        setCategory(meta.category ?? "");
+        setYear(meta.published_year ?? null);
+      } catch {
+        /* 조용히 넘어간다 */
+      }
+    };
+    ```
+  - **`r.ok` 를 반드시 확인한다.** 확인하지 않으면 `{ error: … }` 본문이 메타데이터 자리에
+    들어가 제목 없는 논문이 저장된다. arXiv 자체의 "Error" 응답은 `parseArxivAtom` 이
+    라우트에서 이미 걸러 422 로 떨어진다 (Task 2·3)
   - 성공하면 제목·저자가 비어 있을 때만 채우고, 분야·연도를 `categoryLabel(category)` 로 함께 보여준다. **채워진 값은 그대로 고칠 수 있다**
   - 실패하면 조용히 넘어간다. 에러를 띄우지 않는다 — arXiv 가 아닌 논문도 정상이다
-  - 저장: `createPaper({ title, authors, pdf_url, added_by: 나, status, read_date: status === "read" ? session.date : null, session_id: session.id, category, published_year })` 후 `setAttendance(session.id, 나, "present")`
+  - 링크를 비우면 `category`·`published_year` 도 비운다. 앞선 논문의 분야가 남아 저장되면 안 된다
+  - 저장: `createPaper({ title, authors, pdf_url, added_by: 나, status, read_date: status === "read" ? session.date : null, session_id: session.id, category, published_year })`
+  - **출석은 필요할 때만 따로 쓴다.** 참석 판정이 이미 "논문을 등록한 사람 = 참석" 이므로
+    (`classifyAttendance`, Task 7) 논문 저장만으로 참석자로 분류된다. 연달아 출석까지 쓰면
+    중간 실패와 중복 쓰기 위험만 는다.
+    **예외는 하나** — 내가 이미 `absent` 를 선언해 둔 경우다. `absent` 가 우선하므로 논문을
+    등록해도 불참자로 남는다. 이때만 `setAttendance(session.id, 나, "present")` 를 이어서
+    호출해 불참 표시를 지운다. 즉:
+
+    ```ts
+    await createPaper({ … });
+    if (myAttendance?.status === "absent") {
+      await setAttendance(session.id, me, "present");
+    }
+    ```
   - **차시가 이미 정해져 있으므로 "스터디 일정" 드롭다운은 없다**
 - **불참** 칸: 사유 입력 한 줄
   - 저장 전에, 그 차시에 내가 등록한 논문이 있으면 (`myPapers.length > 0`) `window.confirm("이 차시에 등록한 논문이 있습니다. 불참으로 바꿀까요?")` 로 한 번 묻는다
@@ -1098,6 +1175,22 @@ Create `components/SessionReport.tsx`. 구조는 이렇다.
 - 수집 문장은 `highlights.text` 와 `highlights.note` 가 한 쌍이고 `purpose` 를 라벨로 함께 보인다
 - 더보기는 `useState` 로 논문별 펼침 상태를 들고 있는 작은 하위 컴포넌트로 뺀다 (훅을 map 콜백 안에서 쓸 수 없다)
 
+**`SessionReadingsCard` 가 하던 동선을 잃지 않는다.** 이 페이지에서만 되던 일이 있어서,
+그냥 표시용 화면으로 바꾸면 기능이 사라진다. 아래를 그대로 옮긴다.
+
+| 지금 되는 것 | 보고서에서 |
+| --- | --- |
+| 멤버 이름·아바타 → `/members/[id]` | 그대로 링크 |
+| 논문 제목 → `/members/[id]/papers/[paperId]` | 그대로 링크 — **PDF 하이라이트 화면으로 들어가는 유일한 경로다** |
+| 한줄평 작성·수정·삭제 (본인만) | `useSessionReview` 를 그대로 쓴다 (`components/SessionReview.tsx`) |
+| 참석 체크 버튼 | `SessionRecordForm` 의 `참석` 갈래가 대신한다 |
+| 참석 N명 · 논문 N편 요약 | 세 갈래 머리말에 인원 수로 남긴다 |
+
+한줄평이 특히 중요하다. 홈의 `SessionReadingsCard` 는 **가장 최근 차시 하나**만 보여주므로,
+차시 상세에서 한줄평 작성이 빠지면 **2주 전 차시에는 한줄평을 쓸 방법이 없어진다.**
+보고서의 한줄평 자리는 읽기 전용이 아니라 `useSessionReview` 의 버튼·패널을 그대로 단다 —
+본인이면 `＋ 한줄평` 으로 쓰고 `수정`·`삭제` 가 되고, 남이면 펼쳐 보기만 된다.
+
 - [ ] **Step 2: 차시 상세 페이지를 보고서로 교체**
 
 `app/sessions/[id]/page.tsx` 에서:
@@ -1123,6 +1216,9 @@ npm run build && npx next start -p 3200
 - 과거 하이라이트는 `purpose` 가 비어 있으므로 **수집 문장 칸이 `기록 전`** 이다 (스펙대로 정상)
 - 한줄평이 있는 사람은 한줄평이 나오고, 없는 사람은 그 자리만 `기록 전`
 - 응답 없음에 이름이 나열되고 경고 문구가 없다
+- **동선 확인** — 논문 제목을 누르면 PDF 하이라이트 화면으로 들어간다,
+  멤버 이름을 누르면 멤버 페이지로 간다, 본인 자리에 `＋ 한줄평` 이 보이고
+  이미 쓴 한줄평에는 `수정`·`삭제` 가 보인다 (누르지는 않는다 — 공유 DB 에 쓰지 않는다)
 - 콘솔 에러가 없다
 
 - [ ] **Step 5: 커밋**
@@ -1138,119 +1234,7 @@ git commit -m "feat: 차시 상세를 주간 보고서로 개편
 
 ---
 
-## Task 11: 백필 스크립트
-
-**Files:**
-- Create: `scripts/backfill-arxiv.mjs`
-
-**Interfaces:**
-- Consumes: `GET /api/arxiv` (Task 3)
-- Produces: 없음 (일회성 도구)
-
-- [ ] **Step 1: 스크립트 작성**
-
-Create `scripts/backfill-arxiv.mjs`:
-
-```js
-/**
- * 기존 논문의 분야·발행연도를 채운다. 한 번만 돌리면 되고, 몇 번을 다시
- * 돌려도 안전하다(이미 값이 있는 행은 건너뛴다).
- *
- * 파싱 코드를 두 벌로 갈라놓지 않으려고 실행 중인 앱의 /api/arxiv 를 부른다.
- *
- *   npx next start -p 3200 &
- *   BASE=http://localhost:3200 node scripts/backfill-arxiv.mjs
- *
- * NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 가 필요하다.
- */
-import { readFileSync } from "node:fs";
-
-const BASE = process.env.BASE ?? "http://localhost:3000";
-
-// .env.local 이 있으면 읽어 온다 (없으면 환경변수만 쓴다)
-let env = { ...process.env };
-try {
-  for (const line of readFileSync(".env.local", "utf8").split("\n")) {
-    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-    if (m) env[m[1]] ??= m[2];
-  }
-} catch {}
-
-const URL_ = env.NEXT_PUBLIC_SUPABASE_URL;
-const KEY = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-if (!URL_ || !KEY) {
-  console.error("NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY 가 필요합니다.");
-  process.exit(1);
-}
-const headers = { apikey: KEY, Authorization: `Bearer ${KEY}` };
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const res = await fetch(
-  `${URL_}/rest/v1/papers?select=id,title,pdf_url,category,published_year&pdf_url=neq.`,
-  { headers }
-);
-const papers = await res.json();
-
-const todo = papers.filter((p) => !p.category && p.pdf_url);
-console.log(`대상 ${todo.length}편 / 전체 ${papers.length}편`);
-
-const failed = [];
-for (const p of todo) {
-  try {
-    const r = await fetch(`${BASE}/api/arxiv?url=${encodeURIComponent(p.pdf_url)}`);
-    if (!r.ok) {
-      failed.push([p.title, `HTTP ${r.status}`]);
-      continue;
-    }
-    const meta = await r.json();
-    const patch = await fetch(`${URL_}/rest/v1/papers?id=eq.${p.id}`, {
-      method: "PATCH",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        category: meta.category ?? "",
-        published_year: meta.published_year ?? null,
-      }),
-    });
-    if (!patch.ok) {
-      failed.push([p.title, `PATCH ${patch.status}`]);
-      continue;
-    }
-    console.log(`  ✓ ${meta.category} ${meta.published_year}  ${p.title.slice(0, 50)}`);
-  } catch (e) {
-    failed.push([p.title, String(e)]);
-  }
-  await sleep(3000); // arXiv API 권고: 요청 사이에 간격을 둔다
-}
-
-console.log(`\n완료. 실패 ${failed.length}편`);
-for (const [t, why] of failed) console.log(`  - ${t.slice(0, 50)} : ${why}`);
-```
-
-- [ ] **Step 2: 린트 확인**
-
-Run: `npm run lint`
-Expected: 통과 (`scripts/` 는 `next lint` 대상이 아니지만 확인은 한다)
-
-- [ ] **Step 3: 실행은 사용자 확인 후에**
-
-**이 스크립트는 공유 DB 에 쓴다.** 계획 실행자가 임의로 돌리지 않는다. 사용자에게 이렇게 보고하고 승인을 받는다:
-
-> 백필 스크립트가 준비됐습니다. 돌리면 기존 논문 중 arXiv 링크가 있고 분야가 빈 것들의 `category`·`published_year` 를 채웁니다. 다른 필드는 건드리지 않고, 이미 값이 있는 행은 건너뜁니다. 돌릴까요?
-
-- [ ] **Step 4: 커밋**
-
-```bash
-git add scripts/backfill-arxiv.mjs
-git commit -m "chore: 기존 논문 arXiv 메타데이터 백필 스크립트
-
-이미 값이 있는 행은 건너뛰므로 몇 번을 돌려도 안전하다. 파싱 코드를
-두 벌로 갈라놓지 않으려고 실행 중인 앱의 /api/arxiv 를 부른다."
-```
-
----
-
-## Task 12: README 갱신
+## Task 11: README 갱신
 
 **Files:**
 - Modify: `README.md`
@@ -1292,13 +1276,14 @@ git commit -m "docs: 보고서·수집 용도·arXiv 자동 채움 안내"
 
 전체 작업이 끝나면 한 번에 확인한다.
 
-- [ ] `npx vitest run` — 16 tests 통과
+- [ ] `npx vitest run` — 19 tests 통과
 - [ ] `npx tsc --noEmit` — exit 0
 - [ ] `npm run lint` — 경고 없음
 - [ ] `npm run build` — 성공
 - [ ] 프로덕션 빌드(`npx next start`)로 아래를 확인하고, **공유 DB 에는 쓰지 않는다**
   - 홈: 예정 스터디에 `＋ 이번 차시 기록`, 사이드바 미선택 시 안내 문구
   - 차시 상세: 보고서 세 갈래, 항목별 `기록 전`, 기록 폼
+  - 차시 상세 동선: 논문 제목 → PDF 화면, 멤버 이름 → 멤버 페이지, 한줄평 작성·수정 버튼
+  - 불참을 선언한 상태에서 `＋ 이번 차시 기록` 을 열면 `참석` 으로 되돌릴 수 있다
   - 멤버 페이지: 추가 폼 없음, 목록·편집·삭제·한줄평 정상
   - PDF 뷰어: 용도 선택이 생성·수정 양쪽에 있고, 남의 논문에서는 여전히 보기 전용
-- [ ] 사용자에게 백필 스크립트 실행 승인을 받는다

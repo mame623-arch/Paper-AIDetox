@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Member, Paper, PaperStatus, Review, Session } from "@/lib/types";
 import {
-  createPaper,
   deletePaper,
   fetchMember,
   fetchPapersByMember,
@@ -18,7 +17,7 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { useSessionReview } from "@/components/SessionReview";
-import { Avatar, Card, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
+import { Avatar, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
 
 export default function MemberPage() {
   const params = useParams<{ id: string }>();
@@ -119,17 +118,11 @@ export default function MemberPage() {
         </div>
       </div>
 
-      {canEdit ? (
-        <AddPaperForm
-          memberId={memberId}
-          sessions={sessions}
-          onAdded={reload}
-        />
-      ) : (
+      {!canEdit && (
         <p className="rounded-lg border border-dashed border-line bg-surface px-4 py-2.5 text-sm text-muted">
           {currentMemberId
             ? `${member.name} 님의 기록입니다. 보기만 할 수 있어요.`
-            : "사이드바에서 내 이름을 고르면 내 기록을 추가·편집할 수 있어요."}
+            : "사이드바에서 내 이름을 고르면 내 기록을 편집할 수 있어요."}
         </p>
       )}
 
@@ -170,170 +163,6 @@ export default function MemberPage() {
         onChanged={reload}
       />
     </div>
-  );
-}
-
-function AddPaperForm({
-  memberId,
-  sessions,
-  onAdded,
-}: {
-  memberId: string;
-  sessions: Session[];
-  onAdded: () => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [authors, setAuthors] = useState("");
-  const [url, setUrl] = useState("");
-  const [status, setStatus] = useState<PaperStatus>("toread");
-  const [sessionId, setSessionId] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const reset = () => {
-    setTitle("");
-    setAuthors("");
-    setUrl("");
-    setStatus("toread");
-    setSessionId("");
-    setError("");
-  };
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) {
-      setError("제목을 입력하세요.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const session = sessions.find((s) => s.id === sessionId) ?? null;
-      await createPaper({
-        title: title.trim(),
-        authors: authors.trim(),
-        pdf_url: url.trim(),
-        added_by: memberId,
-        status,
-        read_date: status === "read" ? session?.date ?? today() : null,
-        session_id: sessionId || null,
-        category: "",
-        published_year: null,
-      });
-      reset();
-      setOpen(false);
-      await onAdded();
-    } catch (err) {
-      console.error(err);
-      setError("저장에 실패했습니다. Supabase 설정을 확인하세요.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="rounded-lg border border-dashed border-linestrong bg-bg px-4 py-2.5 text-sm font-medium text-muted hover:border-accent hover:text-accent"
-      >
-        ＋ 논문 기록 추가
-      </button>
-    );
-  }
-
-  return (
-    <Card>
-      <form onSubmit={submit} className="space-y-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted">제목 *</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="field"
-            placeholder="Attention Is All You Need"
-            autoFocus
-          />
-        </label>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">저자</span>
-            <input
-              value={authors}
-              onChange={(e) => setAuthors(e.target.value)}
-              className="field"
-              placeholder="Ashish Vaswani 외"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">
-              PDF 링크 — 넣으면 하이라이트·메모를 남길 수 있어요
-            </span>
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="field"
-              placeholder="https://arxiv.org/pdf/1706.03762"
-            />
-          </label>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">상태</span>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as PaperStatus)}
-              className="field"
-            >
-              <option value="toread">읽을 예정</option>
-              <option value="read">읽음</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">
-              스터디 일정 (선택) — 고르면 홈의 참석자에 표시돼요
-            </span>
-            <select
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-              className="field"
-            >
-              <option value="">선택 안 함</option>
-              {sessions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {formatDate(s.date)} {s.title ? `· ${s.title}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {error && <p className="text-sm text-[#b4543f]">{error}</p>}
-
-        <div className="flex gap-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {saving ? "저장 중…" : "추가"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              reset();
-              setOpen(false);
-            }}
-            className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:bg-surface"
-          >
-            취소
-          </button>
-        </div>
-      </form>
-    </Card>
   );
 }
 

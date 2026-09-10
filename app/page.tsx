@@ -22,8 +22,16 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { SectionTitle, formatDate, weekday } from "@/components/ui";
+import { TabBar } from "@/components/help/HelpParts";
+import HomeHelp from "@/components/help/HomeHelp";
 import SessionReadingsCard from "@/components/SessionReadingsCard";
 import SessionRecordForm from "@/components/SessionRecordForm";
+
+type HomeTab = "home" | "help";
+const TABS = [
+  ["home", "홈"],
+  ["help", "도움말"],
+] as const;
 
 export default function HomePage() {
   const [recent, setRecent] = useState<Session | null>(null);
@@ -35,6 +43,9 @@ export default function HomePage() {
   const [upcomingPapers, setUpcomingPapers] = useState<Paper[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  // 도움말은 URL 에 담지 않는다 — 링크로 공유할 성격이 아니고,
+  // useSearchParams 를 쓰면 이 페이지에 Suspense 경계가 필요해진다.
+  const [tab, setTab] = useState<HomeTab>("home");
   const [currentMemberId] = useCurrentMemberId();
 
   const load = async () => {
@@ -94,7 +105,11 @@ export default function HomePage() {
         AI 없이 논문/글을 읽고, 좋은 표현과 문단 구조를 직접 파악합니다.
       </p>
 
-      {loading ? (
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+
+      {tab === "help" ? (
+        <HomeHelp />
+      ) : loading ? (
         <p className="mt-8 text-muted">불러오는 중…</p>
       ) : (
         <>

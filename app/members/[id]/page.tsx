@@ -36,7 +36,16 @@ import { categoryLabel } from "@/lib/arxivCategories";
 import { useSessionReview } from "@/components/SessionReview";
 import ArchiveRail from "@/components/ArchiveRail";
 import PurposeFilter from "@/components/PurposeFilter";
+import MemberHelp from "@/components/help/MemberHelp";
 import { Avatar, SectionTitle, StatusBadge, formatDate } from "@/components/ui";
+
+type MemberTab = "record" | "trend" | "help";
+
+const MEMBER_TABS = [
+  ["record", "기록"],
+  ["trend", "읽기 경향"],
+  ["help", "도움말"],
+] as const;
 
 /** 한 쪽에 보이는 읽은 논문 수. */
 const PAGE_SIZE = 10;
@@ -74,10 +83,12 @@ function MemberPageInner() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const tab = searchParams.get("tab") === "trend" ? "trend" : "record";
+  const rawTab = searchParams.get("tab");
+  const tab: MemberTab =
+    rawTab === "trend" || rawTab === "help" ? rawTab : "record";
 
   /** 탭을 바꾸면 page 를 버린다 — 다른 탭의 쪽 번호를 들고 갈 이유가 없다. */
-  const setTab = (next: "record" | "trend") => {
+  const setTab = (next: MemberTab) => {
     const q = new URLSearchParams(searchParams.toString());
     if (next === "record") q.delete("tab");
     else q.set("tab", next);
@@ -283,9 +294,9 @@ function MemberPageInner() {
         </div>
       </div>
 
-      {/* 탭: 기록 / 읽기 경향 */}
+      {/* 탭: 기록 / 읽기 경향 / 도움말 */}
       <div className="mt-5 flex gap-1 border-b border-line">
-        {([["record", "기록"], ["trend", "읽기 경향"]] as const).map(([key, label]) => (
+        {MEMBER_TABS.map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -392,6 +403,8 @@ function MemberPageInner() {
           </p>
         </div>
       )}
+
+      {tab === "help" && <MemberHelp />}
     </div>
   );
 }

@@ -12,6 +12,8 @@ import {
   updateSession,
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { TabBar } from "@/components/help/HelpParts";
+import CalendarHelp from "@/components/help/CalendarHelp";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { Card, formatDate, weekday } from "@/components/ui";
 
@@ -26,6 +28,12 @@ function ymd(y: number, m: number, d: number): string {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+type CalendarTab = "calendar" | "help";
+const TABS = [
+  ["calendar", "캘린더"],
+  ["help", "도움말"],
+] as const;
+
 export default function CalendarPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +45,8 @@ export default function CalendarPage() {
   const [currentMemberId] = useCurrentMemberId();
   const [mySessionIds, setMySessionIds] = useState<Set<string>>(new Set());
   const [onlyMine, setOnlyMine] = useState(false);
+  // 도움말은 URL 에 담지 않는다 — 링크로 공유할 성격이 아니다.
+  const [tab, setTab] = useState<CalendarTab>("calendar");
   const filterMine = onlyMine && Boolean(currentMemberId);
 
   const now = new Date();
@@ -120,6 +130,12 @@ export default function CalendarPage() {
       <h1>캘린더</h1>
       <p className="mt-1 text-muted">스터디 일정을 추가하면 홈에 반영됩니다.</p>
 
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+
+      {tab === "help" ? (
+        <CalendarHelp />
+      ) : (
+        <>
       <AddSessionForm nextIndex={sessions.length + 1} onAdded={reload} />
 
       {loading ? (
@@ -236,6 +252,8 @@ export default function CalendarPage() {
               onChanged={reload}
             />
           </div>
+        </>
+      )}
         </>
       )}
     </div>

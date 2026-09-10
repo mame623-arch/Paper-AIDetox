@@ -12,7 +12,6 @@ const NAV = [
   { href: "/", label: "홈", emoji: "🏠" },
   { href: "/members", label: "멤버", emoji: "👥" },
   { href: "/calendar", label: "캘린더", emoji: "🗓️" },
-  { href: "/help", label: "도움말", emoji: "❓" },
 ];
 
 function dday(dateStr: string): string {

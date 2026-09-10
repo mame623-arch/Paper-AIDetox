@@ -72,7 +72,14 @@ PDF 링크가 없는 논문은 애초에 대상에서 빠지고,
 DB 는 건드리지 않습니다). 파싱 코드를 따로 두지 않고 실행 중인 앱의
 `/api/arxiv` 를 그대로 부르므로, 앱을 띄운 채로 돌립니다.
 
+먼저 `--dry-run` 으로 대상이 몇 편인지 보고, 그다음에 실제로 돌리세요.
+`--dry-run` 은 arXiv 를 부르지도 않고 DB 에 쓰지도 않습니다.
+
 ```bash
+# 대상만 세어 본다 (쓰기 없음, 앱도 필요 없음)
+node scripts/backfill-arxiv.mjs --dry-run
+
+# 실제로 채운다 (앱이 떠 있어야 한다)
 npm run build && npx next start -p 3200 &
 BASE=http://localhost:3200 node scripts/backfill-arxiv.mjs
 ```

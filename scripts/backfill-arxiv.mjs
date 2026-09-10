@@ -7,11 +7,15 @@
  *   npm run build && npx next start -p 3200 &
  *   BASE=http://localhost:3200 node scripts/backfill-arxiv.mjs
  *
+ * --dry-run 을 주면 대상만 세고 아무것도 쓰지 않는다. 공유 DB 를 건드리기
+ * 전에 규모를 먼저 보는 용도다. arXiv 도 부르지 않으므로 즉시 끝난다.
+ *
  * NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 가 필요하다
  * (.env.local 에서도 읽는다).
  */
 import { readFileSync } from "node:fs";
 
+const DRY_RUN = process.argv.includes("--dry-run");
 const BASE = process.env.BASE ?? "http://localhost:3000";
 
 const env = { ...process.env };
@@ -51,7 +55,19 @@ if (!Array.isArray(papers)) {
 // 필드마다 따로 판단한다. "둘 다 비었을 때만" 으로 하면 부분적으로 빈 행이
 // 영영 안 채워진다.
 const todo = papers.filter((p) => p.pdf_url && (!p.category || p.published_year == null));
-console.log(`대상 ${todo.length}편 / 전체 ${papers.length}편`);
+console.log(`대상 ${todo.length}편 / 전체 ${papers.length}편 (pdf_url 있는 것만)`);
+
+if (DRY_RUN) {
+  // 어느 필드가 비어서 대상이 됐는지까지 보여준다 — 둘 중 하나만 빈 행도 대상이다.
+  for (const p of todo) {
+    const missing = [!p.category && "분야", p.published_year == null && "발행연도"]
+      .filter(Boolean)
+      .join("·");
+    console.log(`  - ${missing.padEnd(9)} ${p.title.slice(0, 60)}`);
+  }
+  console.log("\n--dry-run 이라 아무것도 쓰지 않았습니다.");
+  process.exit(0);
+}
 
 const failed = [];
 for (const p of todo) {

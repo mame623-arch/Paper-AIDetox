@@ -273,9 +273,12 @@ export interface PaperEditInput {
   title: string;
   authors: string;
   pdf_url: string;
+  /** arXiv 가 아닌 논문은 자동으로 안 채워지므로 여기서 직접 고친다 */
+  category: string;
+  published_year: number | null;
 }
 
-/** 제목·저자·링크 편집 */
+/** 제목·저자·링크·분야·발행연도 편집 */
 export async function updatePaper(
   id: string,
   input: PaperEditInput

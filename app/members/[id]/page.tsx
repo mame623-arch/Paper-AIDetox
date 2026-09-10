@@ -24,6 +24,8 @@ import {
   updatePaperStatus,
 } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { normalizeCategory, parseYear } from "@/lib/paperMeta";
+import CategorySelect from "@/components/CategorySelect";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import {
   bucketPurpose,
@@ -680,6 +682,10 @@ function EditPaperForm({
   const [title, setTitle] = useState(paper.title);
   const [authors, setAuthors] = useState(paper.authors);
   const [url, setUrl] = useState(paper.pdf_url);
+  const [category, setCategory] = useState(paper.category ?? "");
+  const [year, setYear] = useState(
+    paper.published_year != null ? String(paper.published_year) : ""
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -689,6 +695,11 @@ function EditPaperForm({
       setError("제목을 입력하세요.");
       return;
     }
+    const parsedYear = parseYear(year);
+    if (!parsedYear.ok) {
+      setError(parsedYear.message);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -696,6 +707,8 @@ function EditPaperForm({
         title: title.trim(),
         authors: authors.trim(),
         pdf_url: url.trim(),
+        category: normalizeCategory(category),
+        published_year: parsedYear.value,
       });
       await onSaved();
     } catch (err) {
@@ -736,6 +749,26 @@ function EditPaperForm({
           />
         </label>
       </div>
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <div className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">분야</span>
+          <CategorySelect value={category} onChange={setCategory} />
+        </div>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">발행연도</span>
+          <input
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            className="field"
+            inputMode="numeric"
+            placeholder="2017"
+          />
+        </label>
+      </div>
+      <p className="text-xs text-faint">
+        arXiv 논문은 등록할 때 분야·발행연도가 자동으로 채워집니다. 자동으로 채워지지
+        않았다면 여기서 직접 넣어 주세요.
+      </p>
       {error && <p className="text-xs text-[#b4543f]">{error}</p>}
       <div className="flex justify-end gap-1.5">
         <button

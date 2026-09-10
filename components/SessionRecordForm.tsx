@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Attendance, Paper, PaperStatus, Session } from "@/lib/types";
 import type { ArxivMeta } from "@/lib/arxiv";
 import { createPaper, removeAttendance, setAttendance } from "@/lib/db";
-import { categoryLabel } from "@/lib/arxivCategories";
+import { normalizeCategory, parseYear } from "@/lib/paperMeta";
 import { useCurrentMemberId } from "@/lib/currentUser";
 import { Card, formatDate, weekday } from "@/components/ui";
+import CategorySelect from "@/components/CategorySelect";
 
 type Branch = "paper" | "absent";
 
@@ -47,7 +48,13 @@ export default function SessionRecordForm({
   const [authors, setAuthors] = useState("");
   const [status, setStatus] = useState<PaperStatus>("toread");
   const [category, setCategory] = useState("");
-  const [year, setYear] = useState<number | null>(null);
+  // 연도는 문자열로 들고 있다 — 비운 상태와 0 을 구분해야 하고, 입력 중간
+  // 상태("20")도 그대로 보여야 한다. 저장할 때만 숫자로 바꾼다.
+  const [year, setYear] = useState("");
+  /** arXiv 조회 결과. 실패를 조용히 넘기면 사용자는 왜 안 채워졌는지 알 수 없다. */
+  const [lookup, setLookup] = useState<"idle" | "loading" | "ok" | "notArxiv" | "failed">(
+    "idle"
+  );
 
   // 불참 칸
   const [reason, setReason] = useState("");
@@ -55,21 +62,35 @@ export default function SessionRecordForm({
   // arXiv 조회 요청 순번 — 늦게 도착한 응답이 그새 바뀐 링크를 덮어쓰지 않도록 막는다.
   const reqRef = useRef(0);
 
-  const lookup = async (link: string) => {
+  const runLookup = async (link: string) => {
     const seq = ++reqRef.current;
+    setLookup("loading");
     try {
       const r = await fetch(`/api/arxiv?url=${encodeURIComponent(link)}`);
       if (seq !== reqRef.current) return; // 그새 링크가 바뀌었다
-      if (!r.ok) return; // 422·502 는 조용히 넘어간다
+      if (!r.ok) {
+        // 422 = arXiv 링크가 아니거나 메타데이터가 없음, 502 = arXiv 쪽 장애.
+        // 사용자가 할 일이 다르므로 구분해서 알린다.
+        setLookup(r.status === 422 ? "notArxiv" : "failed");
+        return;
+      }
       const meta = (await r.json()) as ArxivMeta;
-      if (seq !== reqRef.current || !meta?.title) return;
-      // 비어 있는 칸만 채운다 — 사용자가 고쳐 둔 값을 덮지 않는다
+      if (seq !== reqRef.current) return;
+      if (!meta?.title) {
+        setLookup("notArxiv");
+        return;
+      }
+      // 제목·저자는 비어 있는 칸만 채운다 — 사용자가 고쳐 둔 값을 덮지 않는다.
       setTitle((t) => t || meta.title);
       setAuthors((a) => a || meta.authors);
+      // 분야·연도는 덮어쓴다. 링크가 바뀌면 아래 effect 가 먼저 비우므로, 여기
+      // 도달했다는 건 이 링크에 대한 조회 결과라는 뜻이다. "비어 있을 때만"으로
+      // 하면 링크를 A→B 로 바꿨을 때 A 의 분야가 B 에 그대로 붙는다.
       setCategory(meta.category ?? "");
-      setYear(meta.published_year ?? null);
+      setYear(meta.published_year != null ? String(meta.published_year) : "");
+      setLookup("ok");
     } catch {
-      /* 조용히 넘어간다 — arXiv 가 아닌 논문도 정상이다 */
+      if (seq === reqRef.current) setLookup("failed");
     }
   };
 
@@ -79,14 +100,14 @@ export default function SessionRecordForm({
     // 디바운스가 뜨기 전에 A가 먼저 응답하면 그 순번이 여전히 최신으로 보여
     // A의 제목·저자가 그대로 반영되고, 그 값이 B의 pdf_url·분야와 잘못 짝지어진다.
     reqRef.current += 1;
+    // 링크가 바뀌면 이전 링크의 조회 결과(분야·연도)와 안내를 함께 비운다.
+    // 남겨 두면 A 의 분야가 B 의 논문에 붙은 채로 저장된다.
+    setCategory("");
+    setYear("");
+    setLookup("idle");
     const link = url.trim();
-    if (!link) {
-      // 링크를 비우면 이전 조회 결과(분야·연도)도 함께 비운다.
-      setCategory("");
-      setYear(null);
-      return;
-    }
-    const t = setTimeout(() => lookup(link), 600);
+    if (!link) return;
+    const t = setTimeout(() => runLookup(link), 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
@@ -97,7 +118,8 @@ export default function SessionRecordForm({
     setAuthors("");
     setStatus("toread");
     setCategory("");
-    setYear(null);
+    setYear("");
+    setLookup("idle");
     setReason("");
     setError("");
   };
@@ -175,6 +197,11 @@ export default function SessionRecordForm({
       setError("제목을 입력하세요.");
       return;
     }
+    const parsedYear = parseYear(year);
+    if (!parsedYear.ok) {
+      setError(parsedYear.message);
+      return;
+    }
     setSaving(true);
     setError("");
 
@@ -206,8 +233,8 @@ export default function SessionRecordForm({
         status,
         read_date: status === "read" ? session.date : null,
         session_id: session.id,
-        category,
-        published_year: year,
+        category: normalizeCategory(category),
+        published_year: parsedYear.value,
       });
     } catch (err) {
       console.error(err);
@@ -302,7 +329,7 @@ export default function SessionRecordForm({
         <form onSubmit={submitPaper} className="space-y-3">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-muted">
-              PDF 링크 — arXiv 링크면 제목·저자·분야를 자동으로 채워요
+              PDF 링크 — arXiv 링크면 제목·저자·분야·발행연도를 자동으로 채워요
             </span>
             <input
               value={url}
@@ -311,11 +338,17 @@ export default function SessionRecordForm({
               placeholder="https://arxiv.org/pdf/1706.03762"
               autoFocus
             />
-            {(category || year !== null) && (
-              <span className="mt-1 block text-xs text-faint">
-                {[category && categoryLabel(category), year && `${year}년`]
-                  .filter(Boolean)
-                  .join(" · ")}
+            {lookup === "loading" && (
+              <span className="mt-1 block text-xs text-faint">arXiv 에서 찾는 중…</span>
+            )}
+            {lookup === "notArxiv" && (
+              <span className="mt-1 block text-xs text-muted">
+                arXiv 링크가 아니라 자동 채움이 안 돼요 — 아래 칸을 직접 채워 주세요.
+              </span>
+            )}
+            {lookup === "failed" && (
+              <span className="mt-1 block text-xs text-muted">
+                arXiv 조회에 실패했어요. 직접 채우시거나 잠시 후 다시 시도해 주세요.
               </span>
             )}
           </label>
@@ -350,6 +383,23 @@ export default function SessionRecordForm({
                 <option value="toread">읽을 예정</option>
                 <option value="read">읽음</option>
               </select>
+            </label>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="block">
+              <span className="mb-1 block text-xs font-medium text-muted">분야</span>
+              <CategorySelect value={category} onChange={setCategory} />
+            </div>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted">발행연도</span>
+              <input
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                className="field"
+                inputMode="numeric"
+                placeholder="2017"
+              />
             </label>
           </div>
 

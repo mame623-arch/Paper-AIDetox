@@ -9,6 +9,7 @@ const NAMES: Record<string, string> = {
   "cs.CV": "컴퓨터비전",
   "cs.LG": "기계학습",
   "cs.RO": "로보틱스",
+  "cs.MA": "멀티에이전트",
   "cs.HC": "HCI",
   "cs.CR": "보안",
   "cs.IR": "정보검색",
@@ -18,6 +19,13 @@ const NAMES: Record<string, string> = {
   "eess.AS": "음성·오디오",
   "eess.IV": "영상처리",
 };
+
+/** 고를 수 있는 분야 코드. arXiv 가 아닌 논문은 여기 없는 값을 직접 넣을 수 있다. */
+export const CATEGORY_CODES = Object.keys(NAMES);
+
+export function isKnownCategory(code: string): boolean {
+  return code in NAMES;
+}
 
 export function categoryLabel(code: string): string {
   if (!code) return "";
